@@ -26,7 +26,7 @@ async function uploadImage(req, res) {
 
     const bucket = process.env.SUPABASE_BUCKET || 'lostlink-images';
     const extension = req.file.originalname.split('.').pop() || 'jpg';
-    const fileName = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+    const fileName = `guest/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
 
     try {
         const { error } = await supabase.storage
