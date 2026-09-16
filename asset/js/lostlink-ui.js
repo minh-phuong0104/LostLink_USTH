@@ -1,22 +1,114 @@
-// Keep Complete's tools accessible without expanding the reference navigation.
-document.addEventListener('DOMContentLoaded', () => {
-  const menu = document.querySelector('.utility-menu');
-  const role = document.getElementById('portalRoleSwitch');
-  if (role) {
-    menu?.querySelector('.utility-links')?.appendChild(role);
-    role.querySelector('span')?.replaceChildren(document.createTextNode(role.classList.contains('officer') ? 'Chế độ bảo vệ' : 'Chế độ sinh viên'));
-  }
-  document.addEventListener('click', event => {
-    if (menu && !menu.contains(event.target)) menu.open = false;
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (menu?.open) { menu.open = false; menu.querySelector('summary').focus(); }
-    document.querySelector('.main-nav')?.classList.remove('mobile-open');
-    document.querySelector('.menu-btn')?.setAttribute('aria-expanded','false');
-  });
-  // A missing upload should use the same neutral fallback as the reference.
-  document.querySelectorAll('.post-card img, .detail-main-image, .search-result-image img').forEach(img => {
-    img.addEventListener('error', () => { img.src = 'asset/images/placeholder.svg'; }, {once:true});
-  });
-});
+(function () {
+    'use strict';
+
+    function normalizeHomeLinks() {
+        document.querySelectorAll('a[href]').forEach((link) => {
+            const href = link.getAttribute('href');
+            if (!href) return;
+
+            if (href === 'Index.html') {
+                link.setAttribute('href', 'index.html');
+            }
+
+            if (href === '../Index.html') {
+                link.setAttribute('href', '../index.html');
+            }
+
+            if (href.includes('Index.html#how-it-works')) {
+                link.remove();
+            }
+        });
+    }
+
+    function setupMobileMenu() {
+        const button = document.querySelector('.menu-btn');
+        const nav = document.querySelector('.main-nav');
+
+        if (!button || !nav) return;
+
+        button.addEventListener('click', () => {
+            const isOpen = nav.classList.toggle('mobile-open');
+            button.setAttribute('aria-expanded', String(isOpen));
+        });
+    }
+
+    function setupUtilityMenu() {
+        const menu = document.querySelector('.utility-menu');
+        if (!menu) return;
+
+        document.addEventListener('click', (event) => {
+            if (!menu.contains(event.target)) {
+                menu.removeAttribute('open');
+            }
+        });
+    }
+
+    function injectAccountLinks() {
+        const utilityLinks = document.querySelector('.utility-links');
+        if (!utilityLinks || !window.LostLink) return;
+
+        const user = window.LostLink.getStoredUser();
+
+        const separator = document.createElement('span');
+        separator.className = 'utility-account-label';
+        separator.textContent = user ? `Xin chào, ${user.full_name}` : 'Tài khoản';
+        utilityLinks.appendChild(separator);
+
+        if (user) {
+            if (user.role === 'admin') {
+                const adminLink = document.createElement('a');
+                adminLink.href = 'admin/dashboard.html';
+                adminLink.textContent = 'Admin Dashboard';
+                utilityLinks.appendChild(adminLink);
+            }
+
+            const logout = document.createElement('button');
+            logout.type = 'button';
+            logout.textContent = 'Đăng xuất';
+            logout.className = 'utility-logout-button';
+            logout.addEventListener('click', () => {
+                window.LostLink.clearSession();
+                location.href = 'index.html';
+            });
+            utilityLinks.appendChild(logout);
+        } else {
+            const login = document.createElement('a');
+            login.href = 'login.html';
+            login.textContent = 'Đăng nhập';
+
+            const register = document.createElement('a');
+            register.href = 'register.html';
+            register.textContent = 'Đăng ký';
+
+            utilityLinks.append(login, register);
+        }
+    }
+
+    function setupImageFallbacks() {
+        document.querySelectorAll('img').forEach((image) => {
+            image.addEventListener('error', () => {
+                if (image.src.includes('placeholder.svg')) return;
+
+                const prefix = location.pathname.includes('/admin/') ? '../' : '';
+                image.src = `${prefix}asset/images/placeholder.svg`;
+            }, { once: true });
+        });
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+
+        document.querySelector('.main-nav')?.classList.remove('mobile-open');
+        document.querySelector('.menu-btn')?.setAttribute('aria-expanded', 'false');
+        document.querySelector('.utility-menu')?.removeAttribute('open');
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        normalizeHomeLinks();
+        setupMobileMenu();
+        setupUtilityMenu();
+        injectAccountLinks();
+        setupImageFallbacks();
+        window.lucide?.createIcons();
+    });
+})();
