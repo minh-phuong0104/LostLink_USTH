@@ -445,10 +445,12 @@
                 body
             });
 
-            const params = new URLSearchParams({
+            const successParams = new URLSearchParams({
                 id: createdPost.id,
                 code: createdPost.management_code
             });
+
+            location.href = `success.html?${successParams.toString()}`;
 
             location.href = `success.html?${params.toString()}`;
         } catch (error) {
