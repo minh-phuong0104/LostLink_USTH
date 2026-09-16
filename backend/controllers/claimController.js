@@ -36,17 +36,13 @@ async function createClaim(req, res) {
             return res.status(400).json({ message: 'Claims can only be created for active found posts.' });
         }
 
-        if (post.user_id === req.user.id) {
-            return res.status(400).json({ message: 'You cannot claim your own found post.' });
-        }
-
         const duplicate = await pool.query(
             `SELECT id
              FROM claims
              WHERE post_id = $1
-               AND claimer_id = $2
+               AND (student_id = $2 OR LOWER(contact) = LOWER($3))
                AND status IN ('pending', 'approved')`,
-            [postId, req.user.id]
+            [postId, studentId, contact]
         );
 
         const requiredQuestions = Array.isArray(post.verification_questions)
@@ -82,7 +78,7 @@ async function createClaim(req, res) {
              )
              VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'pending', $7)
              RETURNING *`,
-            [postId, req.user.id, studentId, contact, message, JSON.stringify(answers), trackingCode]
+            [postId, null, studentId, contact, message, JSON.stringify(answers), trackingCode]
         );
 
         res.status(201).json(result.rows[0]);
@@ -168,10 +164,10 @@ async function getClaimsForPost(req, res) {
         const result = await pool.query(
             `SELECT
                 c.*,
-                u.full_name AS claimer_name,
+                COALESCE(u.full_name, c.student_id, 'Khách') AS claimer_name,
                 u.email AS claimer_email
              FROM claims c
-             JOIN users u ON u.id = c.claimer_id
+             LEFT JOIN users u ON u.id = c.claimer_id
              WHERE c.post_id = $1
              ORDER BY c.created_at DESC`,
             [postId]
@@ -191,11 +187,11 @@ async function getAllClaims(req, res) {
                 c.*,
                 p.title AS post_title,
                 p.verification_questions,
-                u.full_name AS claimer_name,
+                COALESCE(u.full_name, c.student_id, 'Khách') AS claimer_name,
                 u.email AS claimer_email
              FROM claims c
              JOIN posts p ON p.id = c.post_id
-             JOIN users u ON u.id = c.claimer_id
+             LEFT JOIN users u ON u.id = c.claimer_id
              ORDER BY c.created_at DESC`
         );
 

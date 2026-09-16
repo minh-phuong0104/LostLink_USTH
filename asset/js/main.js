@@ -337,7 +337,8 @@
 
     async function populateEditForm(postId) {
         try {
-            const posts = await request('/api/posts/mine');
+            const managementCode = new URLSearchParams(location.search).get('code') || '';
+            const posts = await request(`/api/posts/mine?code=${encodeURIComponent(managementCode)}`);
             const post = posts.find((item) => item.id === postId);
 
             if (!post) {
@@ -424,9 +425,12 @@
             }
 
             const body = getPostFormData(imageUrl);
-            const editId = new URLSearchParams(location.search).get('edit');
+            const params = new URLSearchParams(location.search);
+            const editId = params.get('edit');
+            const managementCode = params.get('code') || '';
 
             if (editId) {
+                body.managementCode = managementCode;
                 const updatedPost = await request(`/api/posts/${encodeURIComponent(editId)}`, {
                     method: 'PUT',
                     body
@@ -669,10 +673,8 @@
         const list = document.getElementById('manageList');
         if (!list) return;
 
-        if (!requireLogin(location.href)) return;
-
         try {
-            const posts = await request('/api/posts/mine');
+            const posts = await request(`/api/posts/mine?code=${encodeURIComponent(normalized)}`);
             const post = posts.find((item) => String(item.management_code).toUpperCase() === normalized);
 
             if (!post) {
@@ -697,7 +699,7 @@
                     </div>
                     <div class="manage-actions">
                         <a class="btn btn-secondary" href="detail.html?id=${encodeURIComponent(post.id)}">Xem</a>
-                        <a class="btn btn-secondary" href="post.html?edit=${encodeURIComponent(post.id)}">Sửa</a>
+                        <a class="btn btn-secondary" href="post.html?edit=${encodeURIComponent(post.id)}&code=${encodeURIComponent(normalized)}">Sửa</a>
                         <button class="btn btn-primary" type="button" data-resolve-post="${escapeHTML(post.id)}">Đã tìm thấy</button>
                         <button class="btn btn-secondary" type="button" data-delete-post="${escapeHTML(post.id)}">Xóa</button>
                     </div>
@@ -708,7 +710,7 @@
                 try {
                     await request(`/api/posts/${post.id}/status`, {
                         method: 'PATCH',
-                        body: { status: 'resolved' }
+                        body: { status: 'resolved', managementCode: normalized }
                     });
                     loadMyPostsAndFindByCode(normalized);
                 } catch (error) {
@@ -720,7 +722,10 @@
                 if (!confirm('Bạn chắc chắn muốn xóa bài này?')) return;
 
                 try {
-                    await request(`/api/posts/${post.id}`, { method: 'DELETE' });
+                    await request(`/api/posts/${post.id}`, {
+                        method: 'DELETE',
+                        body: { managementCode: normalized }
+                    });
                     list.innerHTML = '<div class="manage-placeholder"><h3>Đã xóa bài đăng.</h3></div>';
                 } catch (error) {
                     alert(error.message);

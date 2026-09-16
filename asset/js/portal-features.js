@@ -48,8 +48,6 @@
     }
 
     function openClaimModal(post) {
-        if (!requireLogin(location.href)) return;
-
         let modal = document.getElementById('apiClaimModal');
 
         if (!modal) {
@@ -195,60 +193,16 @@
         const list = document.getElementById('claimsTrackingList');
         if (!list) return;
 
-        if (!getToken()) {
-            list.innerHTML = `
-                <div class="portal-empty-state">
-                    <i data-lucide="log-in"></i>
-                    <h3>Đăng nhập để xem hồ sơ của bạn</h3>
-                    <a class="btn btn-primary" href="login.html?next=${encodeURIComponent(location.href)}">Đăng nhập</a>
-                </div>
-            `;
-            window.lucide?.createIcons();
-            return;
-        }
+        list.innerHTML = `
+            <div class="portal-empty-state">
+                <i data-lucide="scan-search"></i>
+                <h3>Không cần đăng nhập</h3>
+                <p>Sau khi gửi yêu cầu nhận đồ, hãy dùng mã CLM-XXXXXX để theo dõi trạng thái.</p>
+                <a class="btn btn-primary" href="claim-status.html">Tra cứu mã yêu cầu</a>
+            </div>
+        `;
 
-        try {
-            const claims = await request('/api/claims/my');
-
-            if (claims.length === 0) {
-                list.innerHTML = `
-                    <div class="portal-empty-state">
-                        <i data-lucide="badge-help"></i>
-                        <h3>Bạn chưa gửi yêu cầu nhận đồ nào</h3>
-                    </div>
-                `;
-                window.lucide?.createIcons();
-                return;
-            }
-
-            list.innerHTML = claims.map((claim) => {
-                const [label, cssClass] = claimStatusInfo(claim.status);
-
-                return `
-                    <article class="claim-result-card">
-                        <div class="claim-result-top">
-                            <div>
-                                <span class="portal-kicker">${escapeHTML(claim.tracking_code)}</span>
-                                <h2>${escapeHTML(claim.post_title)}</h2>
-                            </div>
-                            <span class="claim-status ${cssClass}">${escapeHTML(label)}</span>
-                        </div>
-                        <div class="claim-result-grid">
-                            <div><span>Địa điểm</span><strong>${escapeHTML(claim.location || 'USTH')}</strong></div>
-                            <div><span>Danh mục</span><strong>${escapeHTML(claim.category || 'Khác')}</strong></div>
-                            <div><span>Gửi lúc</span><strong>${escapeHTML(formatDateTime(claim.created_at))}</strong></div>
-                            <div><span>Cập nhật</span><strong>${escapeHTML(formatDateTime(claim.updated_at))}</strong></div>
-                        </div>
-                        ${claim.pickup_code ? `<div class="verification-token"><span>MÃ NHẬN ĐỒ</span><strong>${escapeHTML(claim.pickup_code)}</strong></div>` : ''}
-                        ${claim.admin_note ? `<div class="portal-admin-note"><strong>Ghi chú từ Admin</strong><p>${escapeHTML(claim.admin_note)}</p></div>` : ''}
-                    </article>
-                `;
-            }).join('');
-
-            window.lucide?.createIcons();
-        } catch (error) {
-            list.innerHTML = `<div class="portal-empty-state"><h3>${escapeHTML(error.message)}</h3></div>`;
-        }
+        window.lucide?.createIcons();
     }
 
     async function renderClaimLookup(code) {

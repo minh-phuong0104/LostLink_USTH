@@ -44,43 +44,32 @@
     }
 
     function injectAccountLinks() {
+        if (location.pathname.includes('/admin/')) return;
+
+        document.querySelectorAll(
+            'a[href="login.html"], a[href="./login.html"], a[href="register.html"], a[href="./register.html"]'
+        ).forEach((link) => link.remove());
+
         const utilityLinks = document.querySelector('.utility-links');
         if (!utilityLinks || !window.LostLink) return;
 
         const user = window.LostLink.getStoredUser();
 
-        const separator = document.createElement('span');
-        separator.className = 'utility-account-label';
-        separator.textContent = user ? `Xin chào, ${user.full_name}` : 'Tài khoản';
-        utilityLinks.appendChild(separator);
-
-        if (user) {
-            if (user.role === 'admin') {
-                const adminLink = document.createElement('a');
-                adminLink.href = 'admin/dashboard.html';
-                adminLink.textContent = 'Admin Dashboard';
-                utilityLinks.appendChild(adminLink);
-            }
+        if (user?.role === 'admin') {
+            const adminLink = document.createElement('a');
+            adminLink.href = 'admin/dashboard.html';
+            adminLink.textContent = 'Admin Dashboard';
 
             const logout = document.createElement('button');
             logout.type = 'button';
-            logout.textContent = 'Đăng xuất';
+            logout.textContent = 'Đăng xuất Admin';
             logout.className = 'utility-logout-button';
             logout.addEventListener('click', () => {
                 window.LostLink.clearSession();
                 location.href = 'index.html';
             });
-            utilityLinks.appendChild(logout);
-        } else {
-            const login = document.createElement('a');
-            login.href = 'login.html';
-            login.textContent = 'Đăng nhập';
 
-            const register = document.createElement('a');
-            register.href = 'register.html';
-            register.textContent = 'Đăng ký';
-
-            utilityLinks.append(login, register);
+            utilityLinks.append(adminLink, logout);
         }
     }
 

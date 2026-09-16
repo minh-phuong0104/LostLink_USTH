@@ -70,14 +70,8 @@
         return data;
     }
 
-    function requireLogin(nextUrl = location.href) {
-        if (getToken()) {
-            return true;
-        }
-
-        const next = encodeURIComponent(nextUrl);
-        location.href = `login.html?next=${next}`;
-        return false;
+    function requireLogin() {
+        return true;
     }
 
     function escapeHTML(value = '') {

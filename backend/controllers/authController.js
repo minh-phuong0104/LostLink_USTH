@@ -81,6 +81,11 @@ async function login(req, res) {
         }
 
         const user = result.rows[0];
+
+        if (user.role !== 'admin') {
+            return res.status(403).json({ message: 'Admin account required.' });
+        }
+
         const passwordMatches = await bcrypt.compare(password, user.password_hash);
 
         if (!passwordMatches) {

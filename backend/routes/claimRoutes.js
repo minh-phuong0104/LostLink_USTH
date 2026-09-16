@@ -4,10 +4,10 @@ const { requireAuth, requireAdmin } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-router.post('/', requireAuth, claimController.createClaim);
-router.get('/my', requireAuth, claimController.getMyClaims);
+router.post('/', claimController.createClaim);
 router.get('/track/:code', claimController.trackClaim);
-router.get('/post/:postId', requireAuth, claimController.getClaimsForPost);
+
+router.get('/post/:postId', requireAuth, requireAdmin, claimController.getClaimsForPost);
 router.get('/', requireAuth, requireAdmin, claimController.getAllClaims);
 router.put('/:id/status', requireAuth, requireAdmin, claimController.updateClaimStatus);
 

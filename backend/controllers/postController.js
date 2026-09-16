@@ -22,7 +22,7 @@ const PUBLIC_POST_FIELDS = `
     p.verification_questions,
     p.created_at,
     p.updated_at,
-    u.full_name AS author_name
+    COALESCE(u.full_name, p.reporter_name, 'Khách') AS author_name
 `;
 
 function normalizeType(value) {
@@ -137,7 +137,7 @@ async function getPosts(req, res) {
         const result = await pool.query(
             `SELECT ${PUBLIC_POST_FIELDS}
              FROM posts p
-             JOIN users u ON u.id = p.user_id
+             LEFT JOIN users u ON u.id = p.user_id
              ${whereClause}
              ${orderBy}`,
             values
@@ -157,7 +157,7 @@ async function getPostById(req, res) {
         const result = await pool.query(
             `SELECT ${PUBLIC_POST_FIELDS}
              FROM posts p
-             JOIN users u ON u.id = p.user_id
+             LEFT JOIN users u ON u.id = p.user_id
              WHERE p.id = $1`,
             [postId]
         );
@@ -174,21 +174,27 @@ async function getPostById(req, res) {
 }
 
 async function getMyPosts(req, res) {
+    const code = String(req.query.code || '').trim().toUpperCase();
+
+    if (!code) {
+        return res.status(400).json({ message: 'Management code is required.' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT
                 p.*,
-                u.full_name AS author_name
+                COALESCE(u.full_name, p.reporter_name, 'Khách') AS author_name
              FROM posts p
-             JOIN users u ON u.id = p.user_id
-             WHERE p.user_id = $1
+             LEFT JOIN users u ON u.id = p.user_id
+             WHERE UPPER(p.management_code) = $1
              ORDER BY p.created_at DESC`,
-            [req.user.id]
+            [code]
         );
 
         res.json(result.rows);
     } catch (error) {
-        console.error('Get my posts error:', error);
+        console.error('Get managed post error:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 }
@@ -247,7 +253,7 @@ async function createPost(req, res) {
              )
              RETURNING *`,
             [
-                req.user.id,
+                null,
                 type,
                 title,
                 description,
@@ -288,12 +294,18 @@ async function updatePost(req, res) {
         }
 
         const currentPost = currentResult.rows[0];
-        const isOwner = currentPost.user_id === req.user.id;
-        const isAdmin = req.user.role === 'admin';
+        const managementCode = String(
+            req.body.managementCode || req.headers['x-management-code'] || ''
+        ).trim().toUpperCase();
+        const isAdmin = req.user?.role === 'admin';
+        const hasValidCode = (
+            managementCode &&
+            String(currentPost.management_code || '').toUpperCase() === managementCode
+        );
 
-        if (!isOwner && !isAdmin) {
+        if (!isAdmin && !hasValidCode) {
             return res.status(403).json({
-                message: 'You do not have permission to edit this post.'
+                message: 'Management code is required to edit this post.'
             });
         }
 
@@ -363,47 +375,76 @@ async function updatePost(req, res) {
 async function updateOwnPostStatus(req, res) {
     const postId = req.params.id;
     const status = normalizeStatus(req.body.status);
+    const managementCode = String(
+        req.body.managementCode || req.headers['x-management-code'] || ''
+    ).trim().toUpperCase();
 
     if (!['active', 'resolved', 'closed'].includes(status)) {
         return res.status(400).json({ message: 'Invalid post status.' });
     }
 
     try {
+        const currentResult = await pool.query(
+            'SELECT id, management_code FROM posts WHERE id = $1',
+            [postId]
+        );
+
+        if (currentResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Post not found.' });
+        }
+
+        const isAdmin = req.user?.role === 'admin';
+        const hasValidCode = (
+            managementCode &&
+            String(currentResult.rows[0].management_code || '').toUpperCase() === managementCode
+        );
+
+        if (!isAdmin && !hasValidCode) {
+            return res.status(403).json({ message: 'Invalid management code.' });
+        }
+
         const result = await pool.query(
             `UPDATE posts
              SET status = $1, updated_at = NOW()
-             WHERE id = $2 AND user_id = $3
+             WHERE id = $2
              RETURNING *`,
-            [status, postId, req.user.id]
+            [status, postId]
         );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Post not found or not owned by you.' });
-        }
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Update own post status error:', error);
+        console.error('Update post status error:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 }
 
 async function deletePost(req, res) {
     const postId = req.params.id;
+    const managementCode = String(
+        req.body?.managementCode || req.headers['x-management-code'] || ''
+    ).trim().toUpperCase();
 
     try {
-        const result = await pool.query(
-            `DELETE FROM posts
-             WHERE id = $1
-               AND (user_id = $2 OR $3 = 'admin')
-             RETURNING id`,
-            [postId, req.user.id, req.user.role]
+        const currentResult = await pool.query(
+            'SELECT id, management_code FROM posts WHERE id = $1',
+            [postId]
         );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Post not found or permission denied.' });
+        if (currentResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Post not found.' });
         }
 
+        const isAdmin = req.user?.role === 'admin';
+        const hasValidCode = (
+            managementCode &&
+            String(currentResult.rows[0].management_code || '').toUpperCase() === managementCode
+        );
+
+        if (!isAdmin && !hasValidCode) {
+            return res.status(403).json({ message: 'Invalid management code.' });
+        }
+
+        await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
         res.json({ message: 'Post deleted.' });
     } catch (error) {
         console.error('Delete post error:', error);

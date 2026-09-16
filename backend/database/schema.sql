@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS posts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     type VARCHAR(10) NOT NULL CHECK (type IN ('lost', 'found')),
     title VARCHAR(180) NOT NULL,
     description TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS claims (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-    claimer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    claimer_id UUID REFERENCES users(id) ON DELETE CASCADE,
     student_id VARCHAR(40) NOT NULL,
     contact VARCHAR(180) NOT NULL,
     message TEXT NOT NULL,
