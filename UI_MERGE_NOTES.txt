@@ -1,0 +1,16 @@
+USTH LOST & FOUND — MERGED UI
+
+- Chức năng và JavaScript của PROJECT WEB-3 được giữ nguyên.
+- Giao diện được nâng cấp theo phong cách file USTH Lost and Found Portal (React):
+  + Liquid glass / frosted-glass cards
+  + Campus-image hero
+  + Header trong suốt, navigation dạng pill
+  + Gradient / ambient liquid background
+  + Form, listing, detail, feedback đồng bộ
+  + Admin dashboard được đồng bộ cùng visual language
+- Thêm "Tin của tôi" vào navigation chính để truy cập nhất quán giữa các trang.
+
+Chạy nhanh:
+1. Mở thư mục này bằng VS Code.
+2. Có thể mở Index.html bằng Live Server vì project này là HTML/CSS/JS thuần.
+3. Admin: admin/login.html
