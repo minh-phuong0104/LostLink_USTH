@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS posts (
     reporter_name VARCHAR(120),
     reporter_role VARCHAR(40),
     verification_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
-    management_code VARCHAR(20) UNIQUE NOT NULL,
+    management_code VARCHAR(64) UNIQUE NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS claims (
     message TEXT NOT NULL,
     answers JSONB NOT NULL DEFAULT '[]'::jsonb,
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'completed')),
-    tracking_code VARCHAR(20) UNIQUE NOT NULL,
-    pickup_code VARCHAR(20) UNIQUE,
+    tracking_code VARCHAR(64) UNIQUE NOT NULL,
+    pickup_code VARCHAR(64) UNIQUE,
     admin_note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     subject VARCHAR(180) NOT NULL,
     message TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'read', 'resolved')),
-    tracking_code VARCHAR(20) UNIQUE NOT NULL,
+    tracking_code VARCHAR(64) UNIQUE NOT NULL,
     admin_reply TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -77,14 +77,37 @@ CREATE TABLE IF NOT EXISTS security_reports (
     reporter_name VARCHAR(120),
     reporter_contact VARCHAR(180),
     status VARCHAR(30) NOT NULL DEFAULT 'investigating' CHECK (status IN ('investigating', 'patrol_dispatched', 'resolved')),
-    tracking_code VARCHAR(20) UNIQUE NOT NULL,
+    tracking_code VARCHAR(64) UNIQUE NOT NULL,
     admin_note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS uploaded_images (
+    path TEXT PRIMARY KEY,
+    bucket TEXT NOT NULL,
+    public_url TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS posts_type_status_idx ON posts(type, status);
 CREATE INDEX IF NOT EXISTS posts_created_at_idx ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS claims_post_id_idx ON claims(post_id);
 CREATE INDEX IF NOT EXISTS claims_claimer_id_idx ON claims(claimer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS claims_one_awarded_per_post_idx
+    ON claims(post_id) WHERE status IN ('approved', 'completed');
+CREATE UNIQUE INDEX IF NOT EXISTS claims_one_active_student_idx
+    ON claims(post_id, UPPER(student_id)) WHERE status IN ('pending', 'approved');
+CREATE UNIQUE INDEX IF NOT EXISTS claims_one_active_contact_idx
+    ON claims(post_id, LOWER(contact)) WHERE status IN ('pending', 'approved');
 CREATE INDEX IF NOT EXISTS security_reports_user_id_idx ON security_reports(user_id);
+CREATE INDEX IF NOT EXISTS uploaded_images_created_at_idx ON uploaded_images(created_at);
+
+-- The Express backend uses the trusted postgres connection. Do not expose these
+-- tables directly through Supabase's anon/authenticated Data API roles.
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE security_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE uploaded_images ENABLE ROW LEVEL SECURITY;

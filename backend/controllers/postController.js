@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const pool = require('../config/database');
+const catalog = require('../../asset/js/catalog');
+const { isUuid, isText, isOptionalText, databaseError } = require('../lib/validation');
 
 const PUBLIC_POST_FIELDS = `
     p.id,
@@ -34,7 +36,7 @@ function normalizeStatus(value) {
 }
 
 function makeManagementCode() {
-    return `LL-${crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`;
+    return `LL-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
 }
 
 function publicQuestions(questions) {
@@ -42,46 +44,80 @@ function publicQuestions(questions) {
         return [];
     }
 
-    return questions.map((item, index) => ({
-        id: item.id || `q${index + 1}`,
-        question: String(item.question || '').trim(),
-        required: item.required !== false
-    })).filter((item) => item.question);
+    return questions.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+        .map((item, index) => ({
+            id: typeof item.id === 'string' ? item.id : `q${index + 1}`,
+            question: typeof item.question === 'string' ? item.question.trim() : '',
+            required: item.required !== false
+        })).filter((item) => item.question);
 }
 
 function hidePrivatePostData(post) {
     return {
         ...post,
+        category: catalog.canonicalCategory(post.category),
+        location: catalog.canonicalLocation(post.location),
         verification_questions: publicQuestions(post.verification_questions)
     };
 }
 
 function validatePostInput(body) {
-    const type = normalizeType(body.type);
-    const title = String(body.title || '').trim();
-    const description = String(body.description || '').trim();
-    const category = String(body.category || '').trim();
-    const location = String(body.location || '').trim();
-    const eventDate = String(body.eventDate || '').trim();
-
-    if (!['lost', 'found'].includes(type)) {
-        return 'Type must be lost or found.';
+    if (!['lost', 'found'].includes(body.type)) return 'Type must be lost or found.';
+    if (!isText(body.title, 10, 180)) return 'Title must contain 10 to 180 characters.';
+    if (!isText(body.description, 1, 5000)) return 'Description is required (maximum 5000 characters).';
+    if (!catalog.categories.includes(body.category)) return 'Invalid category.';
+    if (!catalog.locations.includes(body.location)) return 'Invalid location.';
+    if (typeof body.eventDate !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(body.eventDate) ||
+        Number.isNaN(Date.parse(body.eventDate))) return 'Event date must include a timezone.';
+    if (!isText(body.phone, 1, 80)) return 'Contact number is required (maximum 80 characters).';
+    if (!isOptionalText(body.email, 180) ||
+        (body.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email))) return 'Invalid email.';
+    if (!isOptionalText(body.imageUrl, 2000) ||
+        (body.imageUrl && !/^https?:\/\//i.test(body.imageUrl))) return 'Invalid image URL.';
+    for (const [field, max] of Object.entries({
+        locationDetail: 220, custodyLocation: 220, reporterName: 120, reporterRole: 40
+    })) {
+        if (!isOptionalText(body[field], max)) return `Invalid ${field}.`;
     }
-
-    if (title.length < 5) {
-        return 'Title must contain at least 5 characters.';
+    if (typeof body.highValue !== 'boolean') return 'highValue must be a boolean.';
+    if (!Array.isArray(body.verificationQuestions) || body.verificationQuestions.length > 3) {
+        return 'At most three verification questions are allowed.';
     }
-
-    if (!description || !category || !location || !eventDate) {
-        return 'Description, category, location and event date are required.';
+    for (const item of body.verificationQuestions) {
+        if (!item || typeof item !== 'object' || Array.isArray(item) ||
+            !isText(item.question, 1, 200) || !isOptionalText(item.hint, 250) ||
+            typeof item.required !== 'boolean' ||
+            (item.id != null && !isText(item.id, 1, 30))) return 'Invalid verification question.';
     }
-
-    const parsedDate = new Date(eventDate);
-    if (Number.isNaN(parsedDate.getTime())) {
-        return 'Event date is invalid.';
+    if (body.type === 'found' && !body.verificationQuestions.some((item) => item.required)) {
+        return 'Found posts require a verification question.';
     }
-
     return null;
+}
+
+function postInput(body, current = null) {
+    const existing = current ? {
+        type: current.type, title: current.title, description: current.description,
+        category: catalog.canonicalCategory(current.category),
+        location: catalog.canonicalLocation(current.location),
+        locationDetail: current.location_detail, eventDate: new Date(current.event_date).toISOString(),
+        imageUrl: current.image_url, phone: current.phone, email: current.email,
+        highValue: current.high_value, custodyLocation: current.custody_location,
+        reporterName: current.reporter_name, reporterRole: current.reporter_role,
+        verificationQuestions: current.verification_questions
+    } : {
+        highValue: false, verificationQuestions: [], imageUrl: '', email: '',
+        locationDetail: '', custodyLocation: '', reporterName: '', reporterRole: ''
+    };
+    const fields = Object.keys(existing).concat(['type', 'title', 'description', 'category', 'location', 'eventDate', 'phone']);
+    const result = { ...existing };
+    for (const field of new Set(fields)) {
+        if (Object.prototype.hasOwnProperty.call(body, field)) result[field] = body[field];
+    }
+    if (typeof result.type === 'string') result.type = normalizeType(result.type);
+    if (typeof result.category === 'string') result.category = catalog.canonicalCategory(result.category.trim());
+    if (typeof result.location === 'string') result.location = catalog.canonicalLocation(result.location.trim());
+    return result;
 }
 
 async function getPosts(req, res) {
@@ -92,10 +128,24 @@ async function getPosts(req, res) {
     const requestedStatus = normalizeStatus(req.query.status || 'active');
     const sort = String(req.query.sort || 'newest');
 
-    const conditions = [];
+    if (type && !['lost', 'found'].includes(type)) return res.status(400).json({ message: 'Invalid type.' });
+    if (!['active', 'resolved', 'closed'].includes(requestedStatus)) {
+        return res.status(400).json({ message: 'Invalid public status.' });
+    }
+    if (category && !catalog.categories.includes(catalog.canonicalCategory(category))) {
+        return res.status(400).json({ message: 'Invalid category.' });
+    }
+    if (location && !catalog.locations.includes(catalog.canonicalLocation(location))) {
+        return res.status(400).json({ message: 'Invalid location.' });
+    }
+    if (search.length > 200 || !['newest', 'oldest', 'title'].includes(sort)) {
+        return res.status(400).json({ message: 'Invalid search or sort.' });
+    }
+
+    const conditions = ["p.status <> 'hidden'"];
     const values = [];
 
-    if (type && ['lost', 'found'].includes(type)) {
+    if (type) {
         values.push(type);
         conditions.push(`p.type = $${values.length}`);
     }
@@ -111,27 +161,29 @@ async function getPosts(req, res) {
     }
 
     if (category) {
-        values.push(category);
-        conditions.push(`p.category = $${values.length}`);
+        const canonical = catalog.canonicalCategory(category);
+        values.push([canonical, ...Object.keys({ 'Sách vở': 1, 'Phụ kiện': 1 })
+            .filter((alias) => catalog.canonicalCategory(alias) === canonical)]);
+        conditions.push(`p.category = ANY($${values.length}::text[])`);
     }
 
     if (location) {
-        values.push(`%${location}%`);
-        conditions.push(`p.location ILIKE $${values.length}`);
+        const canonical = catalog.canonicalLocation(location);
+        values.push([canonical, ...['Tòa A21 - USTH', 'Tòa A11', 'Tòa A10 - Tầng 4']
+            .filter((alias) => catalog.canonicalLocation(alias) === canonical)]);
+        conditions.push(`p.location = ANY($${values.length}::text[])`);
     }
 
-    if (requestedStatus && ['active', 'resolved', 'closed', 'hidden'].includes(requestedStatus)) {
-        values.push(requestedStatus);
-        conditions.push(`p.status = $${values.length}`);
-    }
+    values.push(requestedStatus);
+    conditions.push(`p.status = $${values.length}`);
 
     const whereClause = conditions.length > 0
         ? `WHERE ${conditions.join(' AND ')}`
         : '';
 
-    let orderBy = 'ORDER BY p.created_at DESC';
-    if (sort === 'oldest') orderBy = 'ORDER BY p.created_at ASC';
-    if (sort === 'title') orderBy = 'ORDER BY p.title ASC';
+    let orderBy = 'ORDER BY p.created_at DESC, p.id DESC';
+    if (sort === 'oldest') orderBy = 'ORDER BY p.created_at ASC, p.id ASC';
+    if (sort === 'title') orderBy = 'ORDER BY p.title ASC, p.id ASC';
 
     try {
         const result = await pool.query(
@@ -145,20 +197,20 @@ async function getPosts(req, res) {
 
         res.json(result.rows.map(hidePrivatePostData));
     } catch (error) {
-        console.error('Get posts error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Get posts error:');
     }
 }
 
 async function getPostById(req, res) {
     const postId = req.params.id;
+    if (!isUuid(postId)) return res.status(400).json({ message: 'Invalid post ID.' });
 
     try {
         const result = await pool.query(
             `SELECT ${PUBLIC_POST_FIELDS}
              FROM posts p
              LEFT JOIN users u ON u.id = p.user_id
-             WHERE p.id = $1`,
+             WHERE p.id = $1 AND p.status <> 'hidden'`,
             [postId]
         );
 
@@ -168,13 +220,12 @@ async function getPostById(req, res) {
 
         res.json(hidePrivatePostData(result.rows[0]));
     } catch (error) {
-        console.error('Get post error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Get post error:');
     }
 }
 
 async function getMyPosts(req, res) {
-    const code = String(req.query.code || '').trim().toUpperCase();
+    const code = String(req.body.code || '').trim().toUpperCase();
 
     if (!code) {
         return res.status(400).json({ message: 'Management code is required.' });
@@ -187,45 +238,27 @@ async function getMyPosts(req, res) {
                 COALESCE(u.full_name, p.reporter_name, 'Khách') AS author_name
              FROM posts p
              LEFT JOIN users u ON u.id = p.user_id
-             WHERE UPPER(p.management_code) = $1
+             WHERE p.management_code = $1
              ORDER BY p.created_at DESC`,
             [code]
         );
 
         res.json(result.rows);
     } catch (error) {
-        console.error('Get managed post error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Get managed post error:');
     }
 }
 
 async function createPost(req, res) {
-    const validationError = validatePostInput(req.body);
+    const input = postInput(req.body || {});
+    const validationError = validatePostInput(input);
 
     if (validationError) {
         return res.status(400).json({ message: validationError });
     }
 
-    const type = normalizeType(req.body.type);
-    const title = String(req.body.title).trim();
-    const description = String(req.body.description).trim();
-    const category = String(req.body.category).trim();
-    const location = String(req.body.location).trim();
-    const locationDetail = String(req.body.locationDetail || '').trim();
-    const eventDate = req.body.eventDate;
-    const imageUrl = String(req.body.imageUrl || '').trim();
-    const phone = String(req.body.phone || '').trim();
-    const email = String(req.body.email || '').trim();
-    const highValue = Boolean(req.body.highValue);
-    const custodyLocation = String(req.body.custodyLocation || '').trim();
-    const reporterName = String(req.body.reporterName || '').trim();
-    const reporterRole = String(req.body.reporterRole || '').trim();
-    const verificationQuestions = Array.isArray(req.body.verificationQuestions)
-        ? req.body.verificationQuestions
-        : [];
-    const managementCode = makeManagementCode();
-
-    try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
         const result = await pool.query(
             `INSERT INTO posts (
                 user_id,
@@ -254,34 +287,36 @@ async function createPost(req, res) {
              RETURNING *`,
             [
                 null,
-                type,
-                title,
-                description,
-                category,
-                location,
-                locationDetail,
-                eventDate,
-                imageUrl || null,
-                phone,
-                email || null,
-                highValue,
-                custodyLocation || null,
-                reporterName || null,
-                reporterRole || null,
-                JSON.stringify(verificationQuestions),
-                managementCode
+                input.type,
+                input.title.trim(),
+                input.description.trim(),
+                input.category,
+                input.location,
+                input.locationDetail?.trim() || null,
+                input.eventDate,
+                input.imageUrl?.trim() || null,
+                input.phone.trim(),
+                input.email?.trim() || null,
+                input.highValue,
+                input.custodyLocation?.trim() || null,
+                input.reporterName?.trim() || null,
+                input.reporterRole?.trim() || null,
+                JSON.stringify(input.verificationQuestions),
+                makeManagementCode()
             ]
         );
 
-        res.status(201).json(result.rows[0]);
-    } catch (error) {
-        console.error('Create post error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        return res.status(201).json(result.rows[0]);
+      } catch (error) {
+        if (error.code === '23505' && error.constraint === 'posts_management_code_key' && attempt < 2) continue;
+        return databaseError(res, error, 'Create post error:');
+      }
     }
 }
 
 async function updatePost(req, res) {
     const postId = req.params.id;
+    if (!isUuid(postId)) return res.status(400).json({ message: 'Invalid post ID.' });
 
     try {
         const currentResult = await pool.query(
@@ -309,20 +344,15 @@ async function updatePost(req, res) {
             });
         }
 
-        const mergedBody = {
-            ...currentPost,
-            ...req.body,
-            eventDate: req.body.eventDate || currentPost.event_date
-        };
+        if (!isAdmin && currentPost.status === 'hidden') {
+            return res.status(409).json({ message: 'This post is hidden by an admin.' });
+        }
 
-        const validationError = validatePostInput(mergedBody);
+        const input = postInput(req.body || {}, currentPost);
+        const validationError = validatePostInput(input);
         if (validationError) {
             return res.status(400).json({ message: validationError });
         }
-
-        const verificationQuestions = Array.isArray(req.body.verificationQuestions)
-            ? req.body.verificationQuestions
-            : currentPost.verification_questions;
 
         const result = await pool.query(
             `UPDATE posts
@@ -343,37 +373,28 @@ async function updatePost(req, res) {
                 reporter_role = $14,
                 verification_questions = $15::jsonb,
                 updated_at = NOW()
-             WHERE id = $16
+             WHERE id = $16 AND (status <> 'hidden' OR $17)
              RETURNING *`,
             [
-                normalizeType(req.body.type || currentPost.type),
-                String(req.body.title || currentPost.title).trim(),
-                String(req.body.description || currentPost.description).trim(),
-                String(req.body.category || currentPost.category).trim(),
-                String(req.body.location || currentPost.location).trim(),
-                String(req.body.locationDetail ?? currentPost.location_detail ?? '').trim(),
-                req.body.eventDate || currentPost.event_date,
-                req.body.imageUrl ?? currentPost.image_url,
-                String(req.body.phone ?? currentPost.phone ?? '').trim(),
-                String(req.body.email ?? currentPost.email ?? '').trim() || null,
-                req.body.highValue ?? currentPost.high_value,
-                String(req.body.custodyLocation ?? currentPost.custody_location ?? '').trim() || null,
-                String(req.body.reporterName ?? currentPost.reporter_name ?? '').trim() || null,
-                String(req.body.reporterRole ?? currentPost.reporter_role ?? '').trim() || null,
-                JSON.stringify(verificationQuestions || []),
-                postId
+                input.type, input.title.trim(), input.description.trim(), input.category,
+                input.location, input.locationDetail?.trim() || null, input.eventDate,
+                input.imageUrl?.trim() || null, input.phone.trim(), input.email?.trim() || null,
+                input.highValue, input.custodyLocation?.trim() || null,
+                input.reporterName?.trim() || null, input.reporterRole?.trim() || null,
+                JSON.stringify(input.verificationQuestions), postId, isAdmin
             ]
         );
 
+        if (!result.rows.length) return res.status(409).json({ message: 'Post status changed. Reload and try again.' });
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Update post error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Update post error:');
     }
 }
 
 async function updateOwnPostStatus(req, res) {
     const postId = req.params.id;
+    if (!isUuid(postId)) return res.status(400).json({ message: 'Invalid post ID.' });
     const status = normalizeStatus(req.body.status);
     const managementCode = String(
         req.body.managementCode || req.headers['x-management-code'] || ''
@@ -385,7 +406,7 @@ async function updateOwnPostStatus(req, res) {
 
     try {
         const currentResult = await pool.query(
-            'SELECT id, management_code FROM posts WHERE id = $1',
+            'SELECT id, management_code, status FROM posts WHERE id = $1',
             [postId]
         );
 
@@ -403,30 +424,35 @@ async function updateOwnPostStatus(req, res) {
             return res.status(403).json({ message: 'Invalid management code.' });
         }
 
+        if (!isAdmin && currentResult.rows[0].status === 'hidden') {
+            return res.status(409).json({ message: 'This post is hidden by an admin.' });
+        }
+
         const result = await pool.query(
             `UPDATE posts
              SET status = $1, updated_at = NOW()
-             WHERE id = $2
+             WHERE id = $2 AND (status <> 'hidden' OR $3)
              RETURNING *`,
-            [status, postId]
+            [status, postId, isAdmin]
         );
 
+        if (!result.rows.length) return res.status(409).json({ message: 'Post status changed. Reload and try again.' });
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Update post status error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Update post status error:');
     }
 }
 
 async function deletePost(req, res) {
     const postId = req.params.id;
+    if (!isUuid(postId)) return res.status(400).json({ message: 'Invalid post ID.' });
     const managementCode = String(
         req.body?.managementCode || req.headers['x-management-code'] || ''
     ).trim().toUpperCase();
 
     try {
         const currentResult = await pool.query(
-            'SELECT id, management_code FROM posts WHERE id = $1',
+            'SELECT id, management_code, status FROM posts WHERE id = $1',
             [postId]
         );
 
@@ -444,11 +470,15 @@ async function deletePost(req, res) {
             return res.status(403).json({ message: 'Invalid management code.' });
         }
 
-        await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
+        if (!isAdmin && currentResult.rows[0].status === 'hidden') {
+            return res.status(409).json({ message: 'This post is hidden by an admin.' });
+        }
+
+        const deleted = await pool.query('DELETE FROM posts WHERE id = $1 AND (status <> \'hidden\' OR $2) RETURNING id', [postId, isAdmin]);
+        if (!deleted.rows.length) return res.status(409).json({ message: 'Post status changed. Reload and try again.' });
         res.json({ message: 'Post deleted.' });
     } catch (error) {
-        console.error('Delete post error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Delete post error:');
     }
 }
 
@@ -459,5 +489,7 @@ module.exports = {
     createPost,
     updatePost,
     updateOwnPostStatus,
-    deletePost
+    deletePost,
+    validatePostInput,
+    publicQuestions
 };

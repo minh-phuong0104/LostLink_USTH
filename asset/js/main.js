@@ -8,9 +8,6 @@
 
     const {
         request,
-        getToken,
-        getStoredUser,
-        requireLogin,
         escapeHTML,
         formatDateTime,
         formatRelativeTime
@@ -21,6 +18,34 @@
         currentDetailPost: null,
         currentEditPost: null
     };
+
+    function codeKey(postId) { return `lostlink_management_${postId}`; }
+
+    function setupCatalog() {
+        const catalog = window.LostLinkCatalog;
+        if (!catalog) return;
+        for (const [id, values] of Object.entries({
+            postCategory: catalog.categories,
+            categoryFilter: catalog.categories,
+            completeSearchCategory: catalog.categories,
+            postLocation: catalog.locations,
+            locationFilter: catalog.locations,
+            completeSearchLocation: catalog.locations
+        })) {
+            const select = document.getElementById(id);
+            if (!select) continue;
+            const first = select.options[0]?.cloneNode(true);
+            select.replaceChildren(first);
+            for (const value of values) select.add(new Option(value, value));
+        }
+    }
+
+    function localDateTime(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        const pad = (number) => String(number).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
 
     function typeLabel(type) {
         return type === 'found' ? 'Nhặt được' : 'Thất lạc';
@@ -61,7 +86,7 @@
                 data-location="${escapeHTML(post.location || '')}"
                 data-category="${escapeHTML(post.category || '')}"
             >
-                <img class="post-card__background" src="${image}" alt="" aria-hidden="true">
+                <img class="post-card__background" src="${image}" alt="" aria-hidden="true" loading="lazy">
                 <div class="post-card__paper">
                     <span class="post-card__pin" aria-hidden="true"></span>
                     <a class="post-card__media" href="${href}" tabindex="-1" aria-hidden="true">
@@ -142,7 +167,12 @@
             renderListingPosts();
         } catch (error) {
             state.listingPosts = [];
-            renderListingPosts();
+            grid.innerHTML = `<div class="manage-placeholder"><h3>Không thể tải bài đăng</h3><p>${escapeHTML(error.message)}</p><button type="button" id="retryListing" class="btn btn-secondary">Thử lại</button></div>`;
+            document.getElementById('retryListing')?.addEventListener('click', loadListingPosts);
+            const count = document.getElementById('resultCount');
+            if (count) count.textContent = 'Không tải được dữ liệu';
+            const empty = document.getElementById('emptyResults');
+            if (empty) empty.hidden = true;
         }
     }
 
@@ -221,6 +251,12 @@
     }
 
     function setupListingFilters() {
+        const categoryFromUrl = new URLSearchParams(location.search).get('category');
+        const categorySelect = document.getElementById('categoryFilter');
+        if (categoryFromUrl && categorySelect) {
+            const canonical = window.LostLinkCatalog?.canonicalCategory(categoryFromUrl) || categoryFromUrl;
+            if ([...categorySelect.options].some((option) => option.value === canonical)) categorySelect.value = canonical;
+        }
         const ids = [
             'pageSearch',
             'categoryFilter',
@@ -249,6 +285,8 @@
             if (locationSelect) locationSelect.value = '';
             if (time) time.value = '';
             if (sort) sort.value = 'newest';
+
+            if (location.search) history.replaceState(null, '', location.pathname);
 
             renderListingPosts();
         };
@@ -307,7 +345,7 @@
             title: document.getElementById('postTitle').value.trim(),
             category: document.getElementById('postCategory').value,
             location: document.getElementById('postLocation').value,
-            eventDate: document.getElementById('postEventTime').value,
+            eventDate: new Date(document.getElementById('postEventTime').value).toISOString(),
             locationDetail: document.getElementById('postLocationDetail').value.trim(),
             description: document.getElementById('postDescription').value.trim(),
             imageUrl: imageUrl || state.currentEditPost?.image_url || '',
@@ -337,8 +375,9 @@
 
     async function populateEditForm(postId) {
         try {
-            const managementCode = new URLSearchParams(location.search).get('code') || '';
-            const posts = await request(`/api/posts/mine?code=${encodeURIComponent(managementCode)}`);
+            const managementCode = sessionStorage.getItem(codeKey(postId)) || '';
+            if (!managementCode) throw new Error('Hãy nhập mã quản lý ở trang Tin của tôi trước khi sửa.');
+            const posts = await request('/api/posts/mine', { method: 'POST', body: { code: managementCode } });
             const post = posts.find((item) => item.id === postId);
 
             if (!post) {
@@ -353,15 +392,13 @@
             if (typeInput) typeInput.checked = true;
 
             document.getElementById('postTitle').value = post.title || '';
-            document.getElementById('postCategory').value = post.category || '';
-            document.getElementById('postLocation').value = post.location || '';
+            document.getElementById('postCategory').value = window.LostLinkCatalog?.canonicalCategory(post.category) || post.category || '';
+            document.getElementById('postLocation').value = window.LostLinkCatalog?.canonicalLocation(post.location) || post.location || '';
             document.getElementById('postLocationDetail').value = post.location_detail || '';
             document.getElementById('postDescription').value = post.description || '';
             document.getElementById('postPhone').value = post.phone || '';
             document.getElementById('postEmail').value = post.email || '';
-            document.getElementById('postEventTime').value = post.event_date
-                ? new Date(post.event_date).toISOString().slice(0, 16)
-                : '';
+            document.getElementById('postEventTime').value = post.event_date ? localDateTime(post.event_date) : '';
 
             if (document.getElementById('postHighValue')) {
                 document.getElementById('postHighValue').checked = Boolean(post.high_value);
@@ -407,10 +444,6 @@
     async function handlePostSubmit(event) {
         event.preventDefault();
 
-        if (!requireLogin(location.href)) {
-            return;
-        }
-
         const form = event.currentTarget;
         if (!form.reportValidity()) return;
 
@@ -427,7 +460,7 @@
             const body = getPostFormData(imageUrl);
             const params = new URLSearchParams(location.search);
             const editId = params.get('edit');
-            const managementCode = params.get('code') || '';
+            const managementCode = editId ? sessionStorage.getItem(codeKey(editId)) || '' : '';
 
             if (editId) {
                 body.managementCode = managementCode;
@@ -445,14 +478,10 @@
                 body
             });
 
-            const successParams = new URLSearchParams({
-                id: createdPost.id,
-                code: createdPost.management_code
-            });
-
-            location.href = `success.html?${successParams.toString()}`;
-
-            location.href = `success.html?${params.toString()}`;
+            sessionStorage.setItem(codeKey(createdPost.id), createdPost.management_code);
+            sessionStorage.setItem('lostlink_recent_management_code', createdPost.management_code);
+            location.href = `success.html?id=${encodeURIComponent(createdPost.id)}`;
+            return;
         } catch (error) {
             alert(`Không thể lưu bài: ${error.message}`);
         } finally {
@@ -473,7 +502,6 @@
 
         const editId = new URLSearchParams(location.search).get('edit');
         if (editId) {
-            if (!requireLogin(location.href)) return;
             populateEditForm(editId);
         }
 
@@ -527,6 +555,21 @@
             ${email}
             ${!phone && !email ? '<p>Người đăng chưa cung cấp thông tin liên hệ công khai.</p>' : ''}
         `;
+        const link = document.getElementById('detailContactLink');
+        if (link) {
+            link.hidden = !post.phone && !post.email;
+            link.href = post.phone ? `tel:${post.phone.replace(/[^\d+]/g, '')}` : `mailto:${encodeURIComponent(post.email || '')}`;
+        }
+    }
+
+    function showDetailError(message) {
+        const title = document.getElementById('detailTitle');
+        if (title) title.textContent = message;
+        for (const selector of ['.detail-gallery', '.detail-meta', '.detail-description',
+            '#detailContact', '.detail-actions', '.suggestions', '.post-meta-row']) {
+            const element = document.querySelector(selector);
+            if (element) element.hidden = true;
+        }
     }
 
     async function loadDetailPost() {
@@ -536,7 +579,7 @@
         const postId = new URLSearchParams(location.search).get('id');
 
         if (!postId) {
-            title.textContent = 'Không tìm thấy bài đăng';
+            showDetailError('Không tìm thấy bài đăng');
             return;
         }
 
@@ -552,11 +595,6 @@
                 image.src = fallbackImage(post);
                 image.alt = post.title;
             }
-
-            document.querySelectorAll('.thumb img').forEach((thumb) => {
-                thumb.src = fallbackImage(post);
-                thumb.alt = post.title;
-            });
 
             const badge = document.getElementById('detailTypeBadge');
             if (badge) {
@@ -583,7 +621,7 @@
             window.dispatchEvent(new CustomEvent('lostlink:detail-loaded', { detail: post }));
             window.lucide?.createIcons();
         } catch (error) {
-            title.textContent = 'Không thể tải bài đăng';
+            showDetailError(error.status === 404 ? 'Bài đăng không tồn tại hoặc đã ẩn' : 'Không thể tải bài đăng');
         }
     }
 
@@ -626,18 +664,39 @@
 
         if (!button || !modal || !form) return;
 
+        let previousFocus = null;
+        const closeModal = () => {
+            modal.hidden = true;
+            previousFocus?.focus();
+        };
+
         button.addEventListener('click', () => {
+            previousFocus = document.activeElement;
             modal.hidden = false;
+            modal.querySelector('.feedback-close')?.focus();
             const target = document.getElementById('feedbackTargetTitle');
             if (target && state.currentDetailPost) {
-                target.textContent = `Gửi thông tin về “${state.currentDetailPost.title}”.`;
+                target.textContent = `Báo thông tin về “${state.currentDetailPost.title}” cho quản trị viên.`;
             }
         });
 
         modal.querySelectorAll('[data-feedback-close]').forEach((element) => {
-            element.addEventListener('click', () => {
-                modal.hidden = true;
-            });
+            element.addEventListener('click', closeModal);
+        });
+
+        modal.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') closeModal();
+            if (event.key !== 'Tab') return;
+            const focusable = [...modal.querySelectorAll('button, input, textarea, a[href]')]
+                .filter((element) => !element.hidden && element.offsetParent !== null);
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault(); last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault(); first.focus();
+            }
         });
 
         form.addEventListener('submit', async (event) => {
@@ -676,7 +735,7 @@
         if (!list) return;
 
         try {
-            const posts = await request(`/api/posts/mine?code=${encodeURIComponent(normalized)}`);
+            const posts = await request('/api/posts/mine', { method: 'POST', body: { code: normalized } });
             const post = posts.find((item) => String(item.management_code).toUpperCase() === normalized);
 
             if (!post) {
@@ -684,12 +743,15 @@
                     <div class="manage-placeholder">
                         <i data-lucide="circle-x"></i>
                         <h3>Không tìm thấy bài với mã này</h3>
-                        <p>Hãy kiểm tra lại mã quản lý của tài khoản đang đăng nhập.</p>
+                        <p>Hãy kiểm tra lại mã quản lý bí mật của bài đăng.</p>
                     </div>
                 `;
                 window.lucide?.createIcons();
                 return;
             }
+
+            sessionStorage.setItem(codeKey(post.id), normalized);
+            sessionStorage.setItem('lostlink_recent_management_code', normalized);
 
             list.innerHTML = `
                 <article class="manage-card">
@@ -701,7 +763,7 @@
                     </div>
                     <div class="manage-actions">
                         <a class="btn btn-secondary" href="detail.html?id=${encodeURIComponent(post.id)}">Xem</a>
-                        <a class="btn btn-secondary" href="post.html?edit=${encodeURIComponent(post.id)}&code=${encodeURIComponent(normalized)}">Sửa</a>
+                        <a class="btn btn-secondary" href="post.html?edit=${encodeURIComponent(post.id)}">Sửa</a>
                         <button class="btn btn-primary" type="button" data-resolve-post="${escapeHTML(post.id)}">Đã tìm thấy</button>
                         <button class="btn btn-secondary" type="button" data-delete-post="${escapeHTML(post.id)}">Xóa</button>
                     </div>
@@ -728,6 +790,7 @@
                         method: 'DELETE',
                         body: { managementCode: normalized }
                     });
+                    sessionStorage.removeItem(codeKey(post.id));
                     list.innerHTML = '<div class="manage-placeholder"><h3>Đã xóa bài đăng.</h3></div>';
                 } catch (error) {
                     alert(error.message);
@@ -752,8 +815,12 @@
 
         const codeFromUrl = new URLSearchParams(location.search).get('code');
         if (codeFromUrl) {
+            history.replaceState(null, '', location.pathname);
             input.value = codeFromUrl;
             loadMyPostsAndFindByCode(codeFromUrl);
+        } else {
+            const recentCode = sessionStorage.getItem('lostlink_recent_management_code');
+            if (recentCode) input.value = recentCode;
         }
     }
 
@@ -762,16 +829,24 @@
         if (!codeElement) return;
 
         const params = new URLSearchParams(location.search);
-        const code = params.get('code') || 'LL-XXXXXX';
         const id = params.get('id');
+        const code = id ? sessionStorage.getItem(codeKey(id)) : null;
 
+        if (!code || !id) {
+            const heading = document.getElementById('successHeading');
+            if (heading) heading.textContent = 'Thiếu thông tin bài đăng';
+            codeElement.textContent = 'Không có mã quản lý';
+            document.getElementById('copyCodeBtn')?.setAttribute('hidden', '');
+            document.getElementById('manageCreatedPost')?.setAttribute('hidden', '');
+            return;
+        }
         codeElement.textContent = code;
 
         const view = document.getElementById('viewCreatedPost');
         if (view && id) view.href = `detail.html?id=${encodeURIComponent(id)}`;
 
         const manage = document.getElementById('manageCreatedPost');
-        if (manage) manage.href = `my-posts.html?code=${encodeURIComponent(code)}`;
+        if (manage) manage.href = 'my-posts.html';
 
         document.getElementById('copyCodeBtn')?.addEventListener('click', async () => {
             try {
@@ -855,6 +930,15 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('error', (event) => {
+            const image = event.target;
+            if (image instanceof HTMLImageElement &&
+                image.matches('.post-card img, .search-result-card img, #detailImage') &&
+                !image.src.endsWith('/asset/images/placeholder.svg')) {
+                image.src = 'asset/images/placeholder.svg';
+            }
+        }, true);
+        setupCatalog();
         loadHomePosts();
         loadListingPosts();
         setupListingFilters();

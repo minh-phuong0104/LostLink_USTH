@@ -5,8 +5,6 @@
 
     const {
         request,
-        getToken,
-        requireLogin,
         escapeHTML,
         formatDateTime
     } = window.LostLink;
@@ -144,6 +142,7 @@
                 form.hidden = true;
 
                 const success = document.getElementById('apiClaimSuccess');
+                sessionStorage.setItem('lostlink_recent_claim_code', claim.tracking_code);
                 success.hidden = false;
                 success.innerHTML = `
                     <span class="portal-success-icon"><i data-lucide="circle-check-big"></i></span>
@@ -151,7 +150,7 @@
                     <p>Mã theo dõi yêu cầu:</p>
                     <div class="portal-code-box">${escapeHTML(claim.tracking_code)}</div>
                     <div class="portal-dialog-actions">
-                        <a class="btn btn-primary" href="claim-status.html?code=${encodeURIComponent(claim.tracking_code)}">
+                        <a class="btn btn-primary" href="claim-status.html">
                             Theo dõi trạng thái
                         </a>
                     </div>
@@ -174,7 +173,7 @@
         window.addEventListener('lostlink:detail-loaded', (event) => {
             const post = event.detail;
 
-            if (!post || post.type !== 'found') return;
+            if (!post || post.type !== 'found' || post.status !== 'active') return;
             if (document.getElementById('secureClaimBtn')) return;
 
             const button = document.createElement('button');
@@ -197,7 +196,7 @@
             <div class="portal-empty-state">
                 <i data-lucide="scan-search"></i>
                 <h3>Không cần đăng nhập</h3>
-                <p>Sau khi gửi yêu cầu nhận đồ, hãy dùng mã CLM-XXXXXX để theo dõi trạng thái.</p>
+                <p>Sau khi gửi yêu cầu nhận đồ, hãy dùng mã CLM-… để theo dõi trạng thái.</p>
                 <a class="btn btn-primary" href="claim-status.html">Tra cứu mã yêu cầu</a>
             </div>
         `;
@@ -216,7 +215,7 @@
                 <div class="portal-empty-state">
                     <i data-lucide="scan-search"></i>
                     <h3>Nhập mã yêu cầu</h3>
-                    <p>Mã có dạng CLM-XXXXXX.</p>
+                    <p>Mã có dạng CLM-….</p>
                 </div>
             `;
             window.lucide?.createIcons();
@@ -266,7 +265,9 @@
 
         if (!form || !input) return;
 
-        const code = new URLSearchParams(location.search).get('code') || '';
+        const legacyCode = new URLSearchParams(location.search).get('code');
+        if (legacyCode) history.replaceState(null, '', location.pathname);
+        const code = legacyCode || sessionStorage.getItem('lostlink_recent_claim_code') || '';
         if (code) {
             input.value = code.toUpperCase();
             renderClaimLookup(code);
@@ -350,7 +351,7 @@
         form.id = 'securityLookupForm';
         form.className = 'portal-lookup-form';
         form.innerHTML = `
-            <input class="form-control" id="securityLookupCode" placeholder="SEC-XXXXXX" autocomplete="off">
+            <input class="form-control" id="securityLookupCode" placeholder="SEC-…" autocomplete="off">
             <button class="btn btn-secondary" type="submit">
                 <i data-lucide="scan-search"></i>Tra cứu mã
             </button>
@@ -392,58 +393,17 @@
         });
     }
 
-    async function renderSecurityCenter() {
+    function renderSecurityCenter() {
         const timeline = document.getElementById('securityTimeline');
         if (!timeline) return;
-
-        if (!getToken()) {
-            timeline.innerHTML = `
-                <div class="portal-empty-state">
-                    <i data-lucide="log-in"></i>
-                    <h3>Đăng nhập để xem các báo cáo của bạn</h3>
-                    <p>Báo cáo ẩn danh vẫn có thể theo dõi bằng mã SEC nhận được khi gửi.</p>
-                </div>
-            `;
-            window.lucide?.createIcons();
-            return;
-        }
-
-        try {
-            const reports = await request('/api/security-reports/my');
-            const filter = document.getElementById('securityCenterFilter')?.value || '';
-
-            let filtered = reports;
-            if (filter === 'active') filtered = reports.filter((item) => item.status !== 'resolved');
-            if (filter === 'resolved') filtered = reports.filter((item) => item.status === 'resolved');
-
-            if (filtered.length === 0) {
-                timeline.innerHTML = '<div class="portal-empty-state"><h3>Chưa có báo cáo phù hợp.</h3></div>';
-                return;
-            }
-
-            timeline.innerHTML = filtered.map((report) => `
-                <article class="security-timeline-card">
-                    <div>
-                        <span class="portal-kicker">${escapeHTML(report.tracking_code)}</span>
-                        <h3>${escapeHTML(report.location)}</h3>
-                        <p>${escapeHTML(report.description)}</p>
-                    </div>
-                    <div>
-                        <strong>${escapeHTML(securityStatusLabel(report.status))}</strong>
-                        <small>${escapeHTML(formatDateTime(report.updated_at))}</small>
-                    </div>
-                    ${report.admin_note ? `<div class="portal-admin-note"><strong>Ghi chú từ Admin</strong><p>${escapeHTML(report.admin_note)}</p></div>` : ''}
-                </article>
-            `).join('');
-        } catch (error) {
-            timeline.innerHTML = `<div class="portal-empty-state"><h3>${escapeHTML(error.message)}</h3></div>`;
-        }
-
+        timeline.innerHTML = `
+            <div class="portal-empty-state">
+                <i data-lucide="scan-search"></i>
+                <h3>Tra cứu báo cáo bằng mã riêng</h3>
+                <p>Nhập mã SEC nhận được khi gửi báo cáo vào ô phía trên.</p>
+            </div>
+        `;
         window.lucide?.createIcons();
-    }
-
-    function setupSecurityCenterFilter() {
-        document.getElementById('securityCenterFilter')?.addEventListener('change', renderSecurityCenter);
     }
 
     const campusBuildings = [
@@ -576,20 +536,7 @@
                 if (element) element.textContent = value;
             });
 
-            if (getToken()) {
-                const [claims, security] = await Promise.all([
-                    request('/api/claims/my'),
-                    request('/api/security-reports/my')
-                ]);
-
-                const pending = document.getElementById('portalPendingClaims');
-                const ready = document.getElementById('portalReadyClaims');
-                const alerts = document.getElementById('portalSecurityAlerts');
-
-                if (pending) pending.textContent = claims.filter((item) => item.status === 'pending').length;
-                if (ready) ready.textContent = claims.filter((item) => item.status === 'approved').length;
-                if (alerts) alerts.textContent = security.filter((item) => item.urgency === 'urgent' && item.status !== 'resolved').length;
-            }
+            // Guest reports and claims are tracked with their private codes, not an account.
         } catch (error) {
             // Overview is helpful but should not break the rest of the page.
         }
@@ -602,7 +549,6 @@
         setupSecurityReportForm();
         renderSecurityCenter();
         setupSecurityLookup();
-        setupSecurityCenterFilter();
         setupCampusMap();
         renderStatusOverview();
         window.lucide?.createIcons();

@@ -42,33 +42,6 @@
         }
     }
 
-    async function handleRegister(event) {
-        event.preventDefault();
-
-        const fullName = document.getElementById('registerName').value.trim();
-        const email = document.getElementById('registerEmail').value.trim();
-        const password = document.getElementById('registerPassword').value;
-        const confirmPassword = document.getElementById('registerConfirmPassword').value;
-        const message = document.getElementById('authMessage');
-
-        if (password !== confirmPassword) {
-            showMessage(message, 'Mật khẩu nhập lại chưa khớp.', true);
-            return;
-        }
-
-        try {
-            const data = await request('/api/auth/register', {
-                method: 'POST',
-                body: { fullName, email, password }
-            });
-
-            saveSession(data.token, data.user);
-            location.href = 'index.html';
-        } catch (error) {
-            showMessage(message, error.message, true);
-        }
-    }
-
     function setupLogoutButtons() {
         document.querySelectorAll('[data-user-logout]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -88,7 +61,6 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('userLoginForm')?.addEventListener('submit', handleLogin);
-        document.getElementById('userRegisterForm')?.addEventListener('submit', handleRegister);
 
         setupLogoutButtons();
         renderCurrentUser();

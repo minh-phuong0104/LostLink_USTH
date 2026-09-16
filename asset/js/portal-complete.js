@@ -65,9 +65,7 @@
         }
 
         if (locationValue) {
-            posts = posts.filter((post) => {
-                return String(post.location || '').toLowerCase().includes(locationValue.toLowerCase());
-            });
+            posts = posts.filter((post) => post.location === locationValue);
         }
 
         if (type) {

@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const pool = require('../config/database');
+const { isUuid, isText, databaseError } = require('../lib/validation');
 
 function makeTrackingCode() {
-    return `SEC-${crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`;
+    return `SEC-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
 }
 
 async function createSecurityReport(req, res) {
@@ -11,23 +12,26 @@ async function createSecurityReport(req, res) {
     const location = String(req.body.location || '').trim();
     const specificLocation = String(req.body.specificLocation || '').trim();
     const description = String(req.body.description || '').trim();
-    const anonymous = Boolean(req.body.anonymous);
+    const anonymous = req.body.anonymous;
     const reporterName = anonymous ? '' : String(req.body.reporterName || '').trim();
     const reporterContact = anonymous ? '' : String(req.body.reporterContact || '').trim();
     const postId = req.body.postId || null;
 
-    if (!category || !location || !specificLocation || description.length < 20) {
+    if (!['fraudulent_claim', 'theft_tampering', 'unsafe_behavior', 'other'].includes(category) ||
+        !['normal', 'urgent'].includes(urgency) || typeof anonymous !== 'boolean' ||
+        !isText(req.body.location, 1, 180) || !isText(req.body.specificLocation, 1, 220) ||
+        !isText(req.body.description, 20, 900) || (postId && !isUuid(postId))) {
         return res.status(400).json({ message: 'Please provide complete report details.' });
     }
 
-    if (!anonymous && (!reporterName || !reporterContact)) {
+    if (!anonymous && (!isText(req.body.reporterName, 1, 120) || !isText(req.body.reporterContact, 1, 180))) {
         return res.status(400).json({ message: 'Reporter name and contact are required unless anonymous.' });
     }
 
     try {
         const trackingCode = makeTrackingCode();
         const userId = anonymous ? null : (req.user ? req.user.id : null);
-        const initialStatus = urgency === 'urgent' ? 'patrol_dispatched' : 'investigating';
+        const initialStatus = 'investigating';
 
         const result = await pool.query(
             `INSERT INTO security_reports (
@@ -64,25 +68,7 @@ async function createSecurityReport(req, res) {
 
         res.status(201).json(result.rows[0]);
     } catch (error) {
-        console.error('Create security report error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
-    }
-}
-
-async function getMySecurityReports(req, res) {
-    try {
-        const result = await pool.query(
-            `SELECT *
-             FROM security_reports
-             WHERE user_id = $1
-             ORDER BY created_at DESC`,
-            [req.user.id]
-        );
-
-        res.json(result.rows);
-    } catch (error) {
-        console.error('Get my security reports error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Create security report error:');
     }
 }
 
@@ -133,10 +119,11 @@ async function getAllSecurityReports(req, res) {
 
 async function updateSecurityReport(req, res) {
     const reportId = req.params.id;
+    if (!isUuid(reportId)) return res.status(400).json({ message: 'Invalid report ID.' });
     const status = String(req.body.status || '').trim().toLowerCase();
     const adminNote = String(req.body.adminNote || '').trim();
 
-    if (!['investigating', 'patrol_dispatched', 'resolved'].includes(status)) {
+    if (!['investigating', 'patrol_dispatched', 'resolved'].includes(status) || adminNote.length > 2000) {
         return res.status(400).json({ message: 'Invalid security report status.' });
     }
 
@@ -158,14 +145,12 @@ async function updateSecurityReport(req, res) {
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Update security report error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Update security report error:');
     }
 }
 
 module.exports = {
     createSecurityReport,
-    getMySecurityReports,
     trackSecurityReport,
     getAllSecurityReports,
     updateSecurityReport

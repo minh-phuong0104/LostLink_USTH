@@ -96,15 +96,15 @@
                         <p><strong>Bằng chứng sở hữu:</strong> ${escapeHTML(claim.message)}</p>
                         ${renderClaimAnswers(claim)}
                     </div>
-                    ${claim.pickup_code ? `<div class="verification-token"><span>MÃ NHẬN ĐỒ</span><strong>${escapeHTML(claim.pickup_code)}</strong></div>` : ''}
+                    ${claim.status === 'approved' && claim.pickup_code ? `<div class="verification-token"><span>MÃ NHẬN ĐỒ</span><strong>${escapeHTML(claim.pickup_code)}</strong></div>` : ''}
                     <label class="admin-reply-box">
                         <span>Ghi chú Admin</span>
                         <textarea data-claim-note="${claim.id}">${escapeHTML(claim.admin_note || '')}</textarea>
                     </label>
                     <div class="admin-actions">
-                        <button class="admin-btn primary" data-claim-status="approved" data-claim-id="${claim.id}">Duyệt</button>
-                        <button class="admin-btn warning" data-claim-status="rejected" data-claim-id="${claim.id}">Từ chối</button>
-                        <button class="admin-btn" data-claim-status="completed" data-claim-id="${claim.id}">Đã bàn giao</button>
+                        ${claim.status === 'pending' ? `<button class="admin-btn primary" data-claim-status="approved" data-claim-id="${claim.id}">Duyệt</button>` : ''}
+                        ${['pending', 'approved'].includes(claim.status) ? `<button class="admin-btn warning" data-claim-status="rejected" data-claim-id="${claim.id}">Từ chối</button>` : ''}
+                        ${claim.status === 'approved' ? `<button class="admin-btn" data-claim-status="completed" data-claim-id="${claim.id}">Đã bàn giao</button>` : ''}
                     </div>
                     <small>Tạo lúc ${escapeHTML(formatDateTime(claim.created_at))}</small>
                 </article>

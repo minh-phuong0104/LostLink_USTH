@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const pool = require('../config/database');
+const { isUuid, isText, databaseError } = require('../lib/validation');
 
 function makeTrackingCode() {
-    return `FB-${crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`;
+    return `FB-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
 }
 
 async function createFeedback(req, res) {
@@ -12,7 +13,9 @@ async function createFeedback(req, res) {
     const message = String(req.body.message || '').trim();
     const postId = req.body.postId || null;
 
-    if (!name || !email || !subject || message.length < 5) {
+    if (!isText(req.body.name, 1, 120) || !isText(req.body.email, 3, 180) ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !isText(req.body.subject, 1, 180) ||
+        !isText(req.body.message, 5, 2000) || (postId && !isUuid(postId))) {
         return res.status(400).json({ message: 'Please complete all feedback fields.' });
     }
 
@@ -38,8 +41,7 @@ async function createFeedback(req, res) {
 
         res.status(201).json(result.rows[0]);
     } catch (error) {
-        console.error('Create feedback error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Create feedback error:');
     }
 }
 
@@ -88,10 +90,11 @@ async function getAllFeedback(req, res) {
 
 async function updateFeedback(req, res) {
     const feedbackId = req.params.id;
+    if (!isUuid(feedbackId)) return res.status(400).json({ message: 'Invalid feedback ID.' });
     const status = String(req.body.status || '').trim().toLowerCase();
     const adminReply = String(req.body.adminReply || '').trim();
 
-    if (!['new', 'read', 'resolved'].includes(status)) {
+    if (!['new', 'read', 'resolved'].includes(status) || adminReply.length > 2000) {
         return res.status(400).json({ message: 'Invalid feedback status.' });
     }
 
@@ -113,8 +116,7 @@ async function updateFeedback(req, res) {
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Update feedback error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Update feedback error:');
     }
 }
 

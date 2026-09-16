@@ -14,52 +14,6 @@ function createToken(user) {
     );
 }
 
-async function register(req, res) {
-    const fullName = String(req.body.fullName || '').trim();
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
-
-    if (!fullName || !email || !password) {
-        return res.status(400).json({
-            message: 'Full name, email and password are required.'
-        });
-    }
-
-    if (password.length < 6) {
-        return res.status(400).json({
-            message: 'Password must contain at least 6 characters.'
-        });
-    }
-
-    try {
-        const existingUser = await pool.query(
-            'SELECT id FROM users WHERE email = $1',
-            [email]
-        );
-
-        if (existingUser.rows.length > 0) {
-            return res.status(409).json({ message: 'Email already exists.' });
-        }
-
-        const passwordHash = await bcrypt.hash(password, 10);
-
-        const result = await pool.query(
-            `INSERT INTO users (full_name, email, password_hash, role)
-             VALUES ($1, $2, $3, 'user')
-             RETURNING id, full_name, email, role, created_at`,
-            [fullName, email, passwordHash]
-        );
-
-        const user = result.rows[0];
-        const token = createToken(user);
-
-        res.status(201).json({ user, token });
-    } catch (error) {
-        console.error('Register error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
-    }
-}
-
 async function login(req, res) {
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
@@ -123,7 +77,6 @@ async function getCurrentUser(req, res) {
 }
 
 module.exports = {
-    register,
     login,
     getCurrentUser
 };

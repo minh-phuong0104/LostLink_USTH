@@ -1,542 +1,62 @@
 # LostLink USTH
 
-LostLink USTH is a Lost & Found website for the USTH community. The frontend remains HTML/CSS/Vanilla JavaScript, while the backend uses Node.js, Express and PostgreSQL.
+LostLink is a lost and found website for the USTH community. It uses static HTML/CSS/JavaScript, Express, PostgreSQL, and optional Supabase Storage for images.
 
-The project is intentionally kept simple so students can explain every important part during a Web course presentation.
+## Current access model
 
-## 1. Project overview
+- Visitors can browse active posts, create posts, submit ownership claims, send feedback, and file security reports without an account.
+- A **management code is a secret**. Anyone holding it can view, edit, resolve, or delete its post, except that a post hidden by an admin cannot be changed with the code. The browser keeps the code in the current tab's `sessionStorage`; copy it to a safe place before closing the tab.
+- Claim, feedback, and security tracking codes are also private. A claim's pickup code is shown only while the claim is approved.
+- Only admins log in. Admin routes require a JWT with the admin role. There is no public registration or user login.
+- Feedback on a post goes to admins. To contact the poster, use the phone/email shown on the post detail page.
 
-Main user flows:
+## Set up a fresh database
 
-- Register and login
-- View lost items and found items
-- Search and filter posts
-- Create a lost/found post
-- View post details
-- Edit, resolve or delete your own post
-- Submit a claim for a found item
-- Track claim status
-- Send system feedback and track it by code
-- Send a security report
-- Admin dashboard for posts, claims, feedback and security reports
+Use PostgreSQL or Supabase PostgreSQL. Run `backend/database/schema.sql` in your SQL client or Supabase SQL Editor. This creates tables, indexes, and RLS. The Express server connects with a trusted `postgres` database role; the tables are not intended to be queried directly by browser anon/authenticated Data API roles.
 
-The old frontend-only `localStorage` database has been removed. Real application data is now stored in PostgreSQL.
+For an **existing** database, back up data and run `backend/database/upgrade-2026-09-16.sql` before deploying this backend. The migration widens code columns, adds claim uniqueness constraints, normalizes older category/location labels, removes malformed question entries, enables RLS, and creates upload tracking. It aborts if old claims conflict with the new uniqueness rules. Review and resolve those claims before retrying. Do not rerun the fresh schema as a substitute for the upgrade.
 
-`localStorage` is used only for:
+No migration is run automatically by the app. Review it and execute it in your database environment.
 
-- JWT token
-- basic logged-in user information
-- optional UI preferences
+## Run locally
 
-## 2. Project structure
+1. Copy `backend/.env.example` to `backend/.env`. Set `DATABASE_URL`, `JWT_SECRET`, and `FRONTEND_URLS`. Keep `.env` private. Use `DATABASE_SSL=true` for Supabase's hosted database.
+2. In `backend`, run `npm ci`, then `npm run dev`. The health endpoint is `http://localhost:3000/api/health`.
+3. To create an admin, set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env`, then run `npm run seed:admin`.
+4. Serve the repository root with an HTTP static server, such as VS Code Live Server at `http://127.0.0.1:5500/index.html`. Do not open pages with `file://`. `asset/js/config.js` points local pages to port 3000; update its production backend URL if your deployment uses another address.
+5. Run `npm test` in `backend` for regression checks.
 
-```text
-LostLink_USTH/
-├── index.html
-├── lost.html
-├── found.html
-├── search.html
-├── detail.html
-├── post.html
-├── my-posts.html
-├── claims.html
-├── claim-status.html
-├── contact.html
-├── feedback-status.html
-├── security-report.html
-├── security-center.html
-├── campus-map.html
-├── login.html
-├── register.html
-│
-├── admin/
-│   ├── login.html
-│   ├── dashboard.html
-│   ├── posts.html
-│   ├── claims.html
-│   ├── feedback.html
-│   └── security.html
-│
-├── asset/
-│   ├── css/
-│   ├── images/
-│   └── js/
-│       ├── config.js
-│       ├── api.js
-│       ├── auth.js
-│       ├── main.js
-│       ├── portal-features.js
-│       ├── portal-complete.js
-│       ├── lostlink-ui.js
-│       ├── admin.js
-│       ├── admin-features.js
-│       └── admin-complete.js
-│
-└── backend/
-    ├── server.js
-    ├── package.json
-    ├── .env.example
-    ├── config/
-    │   └── database.js
-    ├── middleware/
-    │   └── authMiddleware.js
-    ├── controllers/
-    ├── routes/
-    ├── database/
-    │   └── schema.sql
-    └── scripts/
-        └── createAdmin.js
-```
+For deployment behind one trusted reverse proxy, set `TRUST_PROXY_HOPS=1`. Keep it `0` when clients connect directly. Rate limits use an in-memory store and apply per server process; use a shared store if deploying multiple backend instances.
 
-## 3. Technologies
+## Optional images
 
-Frontend:
+Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_BUCKET` in **backend** `.env`; never put the service role key in frontend files. Create a public Storage bucket matching the configured name. The upload route accepts one file up to 5 MB, decodes only JPEG/PNG/WebP, limits image dimensions, and saves a resized WebP. Uploaded files are recorded in `uploaded_images`. An hourly job removes files older than 24 hours that no post references, including abandoned uploads and images from replaced/deleted posts.
 
-- HTML5
-- CSS3
-- Vanilla JavaScript
-- Fetch API
+## Main routes
 
-Backend:
+| Purpose | Route | Access |
+|---|---|---|
+| Public posts | `GET /api/posts`, `GET /api/posts/:id` | Visitors; hidden posts excluded |
+| New post | `POST /api/posts` | Visitors |
+| Find by management code | `POST /api/posts/mine` with `{ "code": "..." }` | Code holder |
+| Edit, status, delete | `PUT /api/posts/:id`, `PATCH /api/posts/:id/status`, `DELETE /api/posts/:id` | Management code or admin JWT |
+| Ownership claim | `POST /api/claims`, `GET /api/claims/track/:code` | Visitors/code holder |
+| Claim administration | `GET /api/claims`, `GET /api/claims/post/:postId`, `PUT /api/claims/:id/status` | Admin |
+| Feedback | `POST /api/feedback`, `GET /api/feedback/track/:code` | Visitors/code holder |
+| Security report | `POST /api/security-reports`, `GET /api/security-reports/track/:code` | Visitors/code holder |
+| Admin login | `POST /api/auth/login`, `GET /api/auth/me` | Admin |
+| Admin management | `/api/admin/*`, feedback and security list/update routes | Admin |
+| Image upload | `POST /api/uploads` multipart field `image` | Visitors, rate limited |
 
-- Node.js
-- Express.js
-- PostgreSQL
-- `pg` for SQL queries
-- `bcryptjs` for bcrypt password hashing
-- `jsonwebtoken` for JWT authentication
-- `multer` + Supabase Storage for optional image upload
+The public post list accepts `type=lost|found`, `status=active|resolved|closed`, `search`, `category`, `location`, and `sort=newest|oldest|title`. `asset/js/catalog.js` is shared by browser and server for category and location values. Hidden posts are never returned by the public list or detail routes.
 
-Deployment:
+Claim transitions are `pending → approved → completed` or `pending/approved → rejected`. A rejected/completed claim is terminal. Only one claim per post can be approved or completed. Completing a claim resolves the post and rejects other pending claims in the same database transaction. Security reports always begin as investigating; only an admin can mark a patrol dispatched.
 
-- Frontend: Vercel
-- Backend: Render or Railway
-- Database: Supabase PostgreSQL
-- Images: Supabase Storage
+## Manual demo checks
 
-## 4. Database structure
-
-### users
-
-Stores accounts.
-
-Important columns:
-
-- `id`
-- `full_name`
-- `email`
-- `password_hash`
-- `role`: `user` or `admin`
-
-### posts
-
-One table stores both lost and found posts.
-
-Important columns:
-
-- `user_id`
-- `type`: `lost` or `found`
-- `title`
-- `description`
-- `category`
-- `location`
-- `event_date`
-- `image_url`
-- `status`
-- `management_code`
-- `verification_questions`
-
-### claims
-
-Stores ownership claims for found items.
-
-Important columns:
-
-- `post_id`
-- `claimer_id`
-- `student_id`
-- `contact`
-- `message`
-- `answers`
-- `status`
-- `tracking_code`
-- `pickup_code`
-
-### feedback
-
-Stores website feedback and post feedback.
-
-Important columns:
-
-- `user_id`
-- `post_id`
-- `name`
-- `email`
-- `subject`
-- `message`
-- `status`
-- `tracking_code`
-- `admin_reply`
-
-### security_reports
-
-Stores security reports.
-
-Important columns:
-
-- `user_id`
-- `post_id`
-- `category`
-- `urgency`
-- `location`
-- `description`
-- `status`
-- `tracking_code`
-- `admin_note`
-
-## 5. Install PostgreSQL schema
-
-Create a Supabase project, open the SQL Editor, then run:
-
-```text
-backend/database/schema.sql
-```
-
-This creates all required tables and indexes.
-
-## 6. Configure backend `.env`
-
-```bash
-cd backend
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-PORT=3000
-NODE_ENV=development
-DATABASE_URL=postgresql://...
-DATABASE_SSL=true
-JWT_SECRET=replace_with_a_long_random_secret
-JWT_EXPIRES_IN=7d
-FRONTEND_URLS=http://127.0.0.1:5500,http://localhost:5500
-```
-
-For image upload, also set:
-
-```env
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_BUCKET=lostlink-images
-```
-
-Do not commit `.env`.
-
-## 7. Install and run backend
-
-```bash
-cd backend
-npm install
-npm run dev
-```
-
-Backend URL:
-
-```text
-http://localhost:3000
-```
-
-Health check:
-
-```text
-GET http://localhost:3000/api/health
-```
-
-## 8. Create Admin account
-
-Add these values to `backend/.env`:
-
-```env
-ADMIN_NAME=LostLink Admin
-ADMIN_EMAIL=admin@usth.edu.vn
-ADMIN_PASSWORD=your_private_password
-```
-
-Then run:
-
-```bash
-cd backend
-npm run seed:admin
-```
-
-The password is hashed before it is stored in PostgreSQL.
-
-## 9. Run frontend
-
-The frontend must be served by HTTP. Do not open HTML files directly with `file://`.
-
-A simple option is VS Code Live Server.
-
-For example:
-
-```text
-http://127.0.0.1:5500/index.html
-```
-
-During local development `asset/js/config.js` automatically uses:
-
-```text
-http://localhost:3000
-```
-
-## 10. Main API endpoints
-
-### Auth
-
-```text
-POST /api/auth/register
-POST /api/auth/login
-GET  /api/auth/me
-```
-
-### Posts
-
-```text
-GET    /api/posts
-GET    /api/posts/mine
-GET    /api/posts/:id
-POST   /api/posts
-PUT    /api/posts/:id
-PATCH  /api/posts/:id/status
-DELETE /api/posts/:id
-```
-
-Search examples:
-
-```text
-GET /api/posts?type=lost
-GET /api/posts?type=found
-GET /api/posts?search=wallet
-GET /api/posts?category=Thiết bị điện tử
-GET /api/posts?location=A21
-```
-
-### Claims
-
-```text
-POST /api/claims
-GET  /api/claims/my
-GET  /api/claims/track/:code
-GET  /api/claims/post/:postId
-GET  /api/claims                  Admin only
-PUT  /api/claims/:id/status       Admin only
-```
-
-### Feedback
-
-```text
-POST /api/feedback
-GET  /api/feedback/track/:code
-GET  /api/feedback                Admin only
-PUT  /api/feedback/:id            Admin only
-```
-
-### Security reports
-
-```text
-POST /api/security-reports
-GET  /api/security-reports/my
-GET  /api/security-reports/track/:code
-GET  /api/security-reports        Admin only
-PUT  /api/security-reports/:id/status   Admin only
-```
-
-### Admin
-
-```text
-GET   /api/admin/dashboard
-GET   /api/admin/posts
-PATCH /api/admin/posts/:id/status
-```
-
-### Images
-
-```text
-POST /api/uploads
-```
-
-The request must use `multipart/form-data` with field name `image`.
-
-## 11. Authentication flow
-
-```text
-Login form
-→ POST /api/auth/login
-→ server finds user by email
-→ bcrypt verifies password
-→ server creates JWT
-→ frontend stores JWT
-→ frontend sends Authorization: Bearer <token>
-→ auth middleware verifies JWT
-→ protected controller runs
-```
-
-Admin permission is also checked on the backend. Hiding an Admin button in the browser is not considered security.
-
-## 12. Ownership flow
-
-When a user edits or deletes a post, the backend checks the post owner.
-
-Conceptually:
-
-```javascript
-const isOwner = post.user_id === req.user.id;
-const isAdmin = req.user.role === 'admin';
-
-if (!isOwner && !isAdmin) {
-    return res.status(403).json({
-        message: 'You do not have permission to edit this post.'
-    });
-}
-```
-
-This is important because frontend buttons can always be modified by a browser user.
-
-## 13. SQL safety
-
-All SQL uses parameters:
-
-```javascript
-const result = await pool.query(
-    'SELECT * FROM users WHERE email = $1',
-    [email]
-);
-```
-
-Do not build SQL with user input inside template strings.
-
-## 14. Image upload
-
-Images are not stored in the Git repository.
-
-Flow:
-
-```text
-Browser chooses image
-→ POST /api/uploads
-→ backend validates file
-→ backend uploads to Supabase Storage
-→ Supabase returns public URL
-→ frontend sends image_url when creating the post
-→ PostgreSQL stores only image_url
-```
-
-If Supabase Storage is not configured, posts can still be created without an image.
-
-## 15. Deploy frontend to Vercel
-
-1. Push repository to GitHub.
-2. Import the repository into Vercel.
-3. The frontend is static, so no build command is required.
-4. Deploy.
-5. Copy the Vercel URL.
-
-Example:
-
-```text
-https://lostlink-usth.vercel.app
-```
-
-## 16. Deploy backend to Render
-
-Create a new Web Service from the same GitHub repository.
-
-Settings:
-
-```text
-Root Directory: backend
-Build Command: npm install
-Start Command: npm start
-```
-
-Add all environment variables from `.env.example` in Render.
-
-After deployment, copy the backend URL, for example:
-
-```text
-https://lostlink-api.onrender.com
-```
-
-Then edit:
-
-```text
-asset/js/config.js
-```
-
-Replace:
-
-```javascript
-'https://YOUR-BACKEND-URL.onrender.com'
-```
-
-with the real backend URL.
-
-Also add the Vercel URL to backend `FRONTEND_URLS`.
-
-## 17. Important code to understand for the presentation
-
-### `backend/middleware/authMiddleware.js`
-
-Explains how JWT is read and verified.
-
-### `backend/controllers/authController.js`
-
-Explains register, bcrypt hashing and login.
-
-### `backend/controllers/postController.js`
-
-Explains CRUD, validation, search filters and ownership checks.
-
-### `backend/controllers/claimController.js`
-
-Explains the secure claim workflow and Admin approval.
-
-### `asset/js/api.js`
-
-Explains how frontend uses `fetch()` and automatically adds JWT.
-
-### `asset/js/main.js`
-
-Explains the main frontend flows: posts, details, feedback and post management.
-
-### `asset/js/admin.js`
-
-Explains Admin authentication and moderation.
-
-## 18. Why the architecture is intentionally simple
-
-The project does not use:
-
-- React
-- Redux
-- GraphQL
-- ORM
-- repository/service layers
-- Docker
-- Redis
-- microservices
-- Kubernetes
-
-The flow is deliberately direct:
-
-```text
-HTML / JavaScript
-→ fetch()
-→ Express route
-→ controller
-→ parameterized PostgreSQL query
-→ JSON response
-```
-
-That makes the code easier to understand and explain in a Web course defense.
+- Create LOST and FOUND posts, with and without an image. Save the management code, reload, then use it in “Tin của tôi” to edit and resolve a post.
+- Filter every category and location; open a homepage category link and confirm the filter is selected. Edit an event time and confirm its local hour stays the same.
+- Hide a post in admin. Confirm public list/detail URLs omit it and its management code cannot make it active again.
+- Submit two claims for one found post. Confirm only one can be approved, a pending claim cannot skip to completed, and a rejected claim never shows a pickup code.
+- Upload a non-image or oversized file and confirm it is rejected. With the backend unavailable, list/detail pages should show an error rather than sample data.
+- Check a 360–390 px viewport and keyboard navigation before release.

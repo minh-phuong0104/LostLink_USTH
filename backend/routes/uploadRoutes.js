@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const uploadController = require('../controllers/uploadController');
+const { uploadLimit } = require('../middleware/rateLimits');
 
 const router = express.Router();
 
@@ -9,15 +10,9 @@ const upload = multer({
     limits: {
         fileSize: 5 * 1024 * 1024
     },
-    fileFilter: (req, file, callback) => {
-        if (!file.mimetype.startsWith('image/')) {
-            return callback(new Error('Only image files are allowed.'));
-        }
-
-        callback(null, true);
-    }
+    fileFilter: (req, file, callback) => callback(null, true)
 });
 
-router.post('/', upload.single('image'), uploadController.uploadImage);
+router.post('/', uploadLimit, upload.single('image'), uploadController.uploadImage);
 
 module.exports = router;

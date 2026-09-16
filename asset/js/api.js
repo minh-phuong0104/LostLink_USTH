@@ -70,10 +70,6 @@
         return data;
     }
 
-    function requireLogin() {
-        return true;
-    }
-
     function escapeHTML(value = '') {
         return String(value)
             .replaceAll('&', '&amp;')
@@ -128,7 +124,6 @@
         getStoredUser,
         saveSession,
         clearSession,
-        requireLogin,
         escapeHTML,
         formatDateTime,
         formatRelativeTime

@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { isUuid, databaseError } = require('../lib/validation');
 
 async function getDashboard(req, res) {
     try {
@@ -55,9 +56,11 @@ async function getDashboard(req, res) {
 async function getPosts(req, res) {
     try {
         const result = await pool.query(`
-            SELECT p.*, u.full_name AS author_name, u.email AS author_email
+            SELECT p.*,
+                   COALESCE(u.full_name, p.reporter_name, 'Khách') AS author_name,
+                   COALESCE(u.email, p.email) AS author_email
             FROM posts p
-            JOIN users u ON u.id = p.user_id
+            LEFT JOIN users u ON u.id = p.user_id
             ORDER BY p.created_at DESC
         `);
 
@@ -70,6 +73,7 @@ async function getPosts(req, res) {
 
 async function updatePostStatus(req, res) {
     const postId = req.params.id;
+    if (!isUuid(postId)) return res.status(400).json({ message: 'Invalid post ID.' });
     const status = String(req.body.status || '').trim().toLowerCase();
 
     if (!['active', 'resolved', 'closed', 'hidden'].includes(status)) {
@@ -91,8 +95,7 @@ async function updatePostStatus(req, res) {
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Admin update post status error:', error);
-        res.status(500).json({ message: 'Internal server error.' });
+        databaseError(res, error, 'Admin update post status error:');
     }
 }
 
