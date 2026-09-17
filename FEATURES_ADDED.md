@@ -4,7 +4,7 @@ This version keeps the original HTML/CSS visual design while replacing browser-o
 
 ## User features
 
-- Register and login
+- Guest access without a user account
 - Real PostgreSQL posts
 - LOST / FOUND listing
 - Search and filters
@@ -30,4 +30,4 @@ This version keeps the original HTML/CSS visual design while replacing browser-o
 
 Application data is stored in PostgreSQL.
 
-`localStorage` is no longer used as a fake database. It is limited to the JWT session and optional UI preferences.
+`localStorage` is no longer used as a fake database. It is used only for the Admin JWT session and optional UI preferences. Guest post management and tracking use dedicated secret codes.

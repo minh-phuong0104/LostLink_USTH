@@ -1045,3 +1045,64 @@ body.lostlink > .site-header { position:sticky; z-index:100; }
 }
 
 .upload-box { display:block; cursor:pointer; }
+
+/* ===== BUG FIX: chống tràn ngang frontend ===== */
+/*
+  Ba nguyên nhân chính:
+  1. Background cố tình lớn hơn viewport.
+  2. Menu tiện ích mobile bị đẩy sang phải bằng right: -80px.
+  3. Các mã LL/CLM/REC/SEC dài không có quy tắc bẻ dòng.
+*/
+html,
+body {
+  max-width: 100%;
+}
+
+body.lostlink {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* Cho phép phần tử con của flex/grid co lại thay vì ép rộng trang. */
+.header-inner > *,
+.footer-inner > *,
+.search-result-card > *,
+.claim-track-card > *,
+.security-timeline-card > * {
+  min-width: 0;
+}
+
+/* Mã bí mật và mã tra cứu phải nằm gọn trong card ở màn hình nhỏ. */
+.management-code,
+.management-code > *,
+.portal-code-box,
+.verification-token,
+.verification-token strong,
+.pickup-token,
+.search-code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 620px) {
+  /* Không đẩy menu ra ngoài viewport. */
+  .utility-links {
+    right: 0;
+    max-width: calc(100vw - 28px);
+  }
+
+  .search-toolbar-bottom {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .search-toolbar-bottom > * {
+    min-width: 0;
+  }
+
+  .management-code {
+    font-size: clamp(16px, 5vw, 24px);
+    letter-spacing: 0.04em;
+  }
+}
