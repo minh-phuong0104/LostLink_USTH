@@ -23,6 +23,20 @@
         return `lostlink_management_${postId}`;
     }
 
+
+    function byId(id) {
+        return document.getElementById(id);
+    }
+
+    function readValue(id) {
+        return byId(id)?.value?.trim() || '';
+    }
+
+    function setValue(id, value) {
+        const element = byId(id);
+        if (element) element.value = value ?? '';
+    }
+
     function fillSelectOptions(selectId, values) {
         const select = document.getElementById(selectId);
         if (!select) return;
@@ -402,22 +416,23 @@
 
     function getPostFormData(imageUrl) {
         const checkedType = document.querySelector('input[name="type"]:checked')?.value || 'LOST';
+        const eventTime = byId('postEventTime')?.value || '';
 
         return {
             type: checkedType.toLowerCase(),
-            title: document.getElementById('postTitle').value.trim(),
-            category: document.getElementById('postCategory').value,
-            location: document.getElementById('postLocation').value,
-            eventDate: new Date(document.getElementById('postEventTime').value).toISOString(),
-            locationDetail: document.getElementById('postLocationDetail').value.trim(),
-            description: document.getElementById('postDescription').value.trim(),
+            title: readValue('postTitle'),
+            category: byId('postCategory')?.value || '',
+            location: byId('postLocation')?.value || '',
+            eventDate: new Date(eventTime).toISOString(),
+            locationDetail: readValue('postLocationDetail'),
+            description: readValue('postDescription'),
             imageUrl: imageUrl || state.currentEditPost?.image_url || '',
-            phone: document.getElementById('postPhone').value.trim(),
-            email: document.getElementById('postEmail').value.trim(),
-            highValue: Boolean(document.getElementById('postHighValue')?.checked),
-            custodyLocation: document.getElementById('postCustodyLocation')?.value.trim() || '',
-            reporterName: document.getElementById('postReporterName')?.value.trim() || '',
-            reporterRole: document.getElementById('postReporterRole')?.value || '',
+            phone: readValue('postPhone'),
+            email: readValue('postEmail'),
+            highValue: Boolean(byId('postHighValue')?.checked),
+            custodyLocation: readValue('postCustodyLocation'),
+            reporterName: readValue('postReporterName'),
+            reporterRole: byId('postReporterRole')?.value || '',
             verificationQuestions: readVerificationQuestionsFromForm()
         };
     }
@@ -436,12 +451,64 @@
         });
     }
 
+    function findManagedPost(posts, postId) {
+        return posts.find((item) => item.id === postId);
+    }
+
+    function fillVerificationQuestions(questions) {
+        const items = Array.isArray(questions) ? questions : [];
+
+        items.slice(0, 3).forEach((item, index) => {
+            const number = index + 1;
+            setValue(`postChallenge${number}`, item.question || '');
+            setValue(`postChallengeHint${number}`, item.hint || '');
+        });
+    }
+
+    function fillPostEditFields(post) {
+        const typeValue = String(post.type).toUpperCase();
+        const typeInput = document.querySelector(`input[name="type"][value="${typeValue}"]`);
+        if (typeInput) typeInput.checked = true;
+
+        setValue('postTitle', post.title || '');
+        setValue('postCategory', window.LostLinkCatalog?.canonicalCategory(post.category) || post.category || '');
+        setValue('postLocation', window.LostLinkCatalog?.canonicalLocation(post.location) || post.location || '');
+        setValue('postLocationDetail', post.location_detail || '');
+        setValue('postDescription', post.description || '');
+        setValue('postPhone', post.phone || '');
+        setValue('postEmail', post.email || '');
+        setValue('postEventTime', post.event_date ? localDateTime(post.event_date) : '');
+        setValue('postCustodyLocation', post.custody_location || '');
+        setValue('postReporterName', post.reporter_name || '');
+        setValue('postReporterRole', post.reporter_role || 'student');
+
+        const highValueInput = byId('postHighValue');
+        if (highValueInput) highValueInput.checked = Boolean(post.high_value);
+
+        fillVerificationQuestions(post.verification_questions);
+        syncFoundSecuritySection();
+    }
+
+    function showEditFormMode() {
+        const heading = document.querySelector('.form-card > h2');
+        if (heading) heading.textContent = 'Chỉnh sửa bài đăng';
+
+        const submitText = byId('postSubmitText');
+        if (submitText) submitText.textContent = 'Lưu thay đổi';
+    }
+
     async function populateEditForm(postId) {
         try {
             const managementCode = sessionStorage.getItem(codeKey(postId)) || '';
-            if (!managementCode) throw new Error('Hãy nhập mã quản lý ở trang Tin của tôi trước khi sửa.');
-            const posts = await request('/api/posts/mine', { method: 'POST', body: { code: managementCode } });
-            const post = posts.find((item) => item.id === postId);
+            if (!managementCode) {
+                throw new Error('Hãy nhập mã quản lý ở trang Tin của tôi trước khi sửa.');
+            }
+
+            const posts = await request('/api/posts/mine', {
+                method: 'POST',
+                body: { code: managementCode }
+            });
+            const post = findManagedPost(posts, postId);
 
             if (!post) {
                 alert('Không tìm thấy bài của bạn để sửa.');
@@ -449,59 +516,33 @@
             }
 
             state.currentEditPost = post;
-
-            const typeValue = String(post.type).toUpperCase();
-            const typeInput = document.querySelector(`input[name="type"][value="${typeValue}"]`);
-            if (typeInput) typeInput.checked = true;
-
-            document.getElementById('postTitle').value = post.title || '';
-            document.getElementById('postCategory').value = window.LostLinkCatalog?.canonicalCategory(post.category) || post.category || '';
-            document.getElementById('postLocation').value = window.LostLinkCatalog?.canonicalLocation(post.location) || post.location || '';
-            document.getElementById('postLocationDetail').value = post.location_detail || '';
-            document.getElementById('postDescription').value = post.description || '';
-            document.getElementById('postPhone').value = post.phone || '';
-            document.getElementById('postEmail').value = post.email || '';
-            document.getElementById('postEventTime').value = post.event_date ? localDateTime(post.event_date) : '';
-
-            if (document.getElementById('postHighValue')) {
-                document.getElementById('postHighValue').checked = Boolean(post.high_value);
-            }
-
-            if (document.getElementById('postCustodyLocation')) {
-                document.getElementById('postCustodyLocation').value = post.custody_location || '';
-            }
-
-            if (document.getElementById('postReporterName')) {
-                document.getElementById('postReporterName').value = post.reporter_name || '';
-            }
-
-            if (document.getElementById('postReporterRole')) {
-                document.getElementById('postReporterRole').value = post.reporter_role || 'student';
-            }
-
-            const questions = Array.isArray(post.verification_questions)
-                ? post.verification_questions
-                : [];
-
-            questions.slice(0, 3).forEach((item, index) => {
-                const number = index + 1;
-                const question = document.getElementById(`postChallenge${number}`);
-                const hint = document.getElementById(`postChallengeHint${number}`);
-
-                if (question) question.value = item.question || '';
-                if (hint) hint.value = item.hint || '';
-            });
-
-            syncFoundSecuritySection();
-
-            const heading = document.querySelector('.form-card > h2');
-            if (heading) heading.textContent = 'Chỉnh sửa bài đăng';
-
-            const submitText = document.getElementById('postSubmitText');
-            if (submitText) submitText.textContent = 'Lưu thay đổi';
+            fillPostEditFields(post);
+            showEditFormMode();
         } catch (error) {
             alert(error.message);
         }
+    }
+
+    async function saveEditedPost(editId, body) {
+        body.managementCode = sessionStorage.getItem(codeKey(editId)) || '';
+
+        const updatedPost = await request(`/api/posts/${encodeURIComponent(editId)}`, {
+            method: 'PUT',
+            body
+        });
+
+        location.href = `detail.html?id=${encodeURIComponent(updatedPost.id)}`;
+    }
+
+    async function saveNewPost(body) {
+        const createdPost = await request('/api/posts', {
+            method: 'POST',
+            body
+        });
+
+        sessionStorage.setItem(codeKey(createdPost.id), createdPost.management_code);
+        sessionStorage.setItem('lostlink_recent_management_code', createdPost.management_code);
+        location.href = `success.html?id=${encodeURIComponent(createdPost.id)}`;
     }
 
     async function handlePostSubmit(event) {
@@ -510,41 +551,21 @@
         const form = event.currentTarget;
         if (!form.reportValidity()) return;
 
-        const submitButton = document.getElementById('postSubmitBtn');
+        const submitButton = byId('postSubmitBtn');
         if (submitButton) submitButton.disabled = true;
 
         try {
-            let imageUrl = null;
-
-            if (document.getElementById('imageInput')?.files?.[0]) {
-                imageUrl = await uploadSelectedImage();
-            }
-
+            const hasSelectedImage = Boolean(byId('imageInput')?.files?.[0]);
+            const imageUrl = hasSelectedImage ? await uploadSelectedImage() : null;
             const body = getPostFormData(imageUrl);
-            const params = new URLSearchParams(location.search);
-            const editId = params.get('edit');
-            const managementCode = editId ? sessionStorage.getItem(codeKey(editId)) || '' : '';
+            const editId = new URLSearchParams(location.search).get('edit');
 
             if (editId) {
-                body.managementCode = managementCode;
-                const updatedPost = await request(`/api/posts/${encodeURIComponent(editId)}`, {
-                    method: 'PUT',
-                    body
-                });
-
-                location.href = `detail.html?id=${encodeURIComponent(updatedPost.id)}`;
+                await saveEditedPost(editId, body);
                 return;
             }
 
-            const createdPost = await request('/api/posts', {
-                method: 'POST',
-                body
-            });
-
-            sessionStorage.setItem(codeKey(createdPost.id), createdPost.management_code);
-            sessionStorage.setItem('lostlink_recent_management_code', createdPost.management_code);
-            location.href = `success.html?id=${encodeURIComponent(createdPost.id)}`;
-            return;
+            await saveNewPost(body);
         } catch (error) {
             alert(`Không thể lưu bài: ${error.message}`);
         } finally {
@@ -552,24 +573,9 @@
         }
     }
 
-    function setupPostForm() {
-        const form = document.getElementById('postForm');
-        if (!form) return;
-
-        document.querySelectorAll('input[name="type"]').forEach((input) => {
-            input.addEventListener('change', syncFoundSecuritySection);
-        });
-
-        syncFoundSecuritySection();
-        form.addEventListener('submit', handlePostSubmit);
-
-        const editId = new URLSearchParams(location.search).get('edit');
-        if (editId) {
-            populateEditForm(editId);
-        }
-
-        const imageInput = document.getElementById('imageInput');
-        const preview = document.getElementById('imagePreview');
+    function setupImagePreview() {
+        const imageInput = byId('imageInput');
+        const preview = byId('imagePreview');
 
         imageInput?.addEventListener('change', () => {
             const file = imageInput.files?.[0];
@@ -578,6 +584,22 @@
             preview.src = URL.createObjectURL(file);
             preview.style.display = 'block';
         });
+    }
+
+    function setupPostForm() {
+        const form = byId('postForm');
+        if (!form) return;
+
+        document.querySelectorAll('input[name="type"]').forEach((input) => {
+            input.addEventListener('change', syncFoundSecuritySection);
+        });
+
+        syncFoundSecuritySection();
+        setupImagePreview();
+        form.addEventListener('submit', handlePostSubmit);
+
+        const editId = new URLSearchParams(location.search).get('edit');
+        if (editId) populateEditForm(editId);
     }
 
     function setDetailMeta(post) {
@@ -887,58 +909,67 @@
         }
     }
 
+    function showMissingSuccessData(codeElement) {
+        const heading = byId('successHeading');
+        if (heading) heading.textContent = 'Thiếu thông tin bài đăng';
+
+        codeElement.textContent = 'Không có mã quản lý';
+        byId('copyCodeBtn')?.setAttribute('hidden', '');
+        byId('manageCreatedPost')?.setAttribute('hidden', '');
+    }
+
     function setupSuccessPage() {
-        const codeElement = document.getElementById('managementCode');
+        const codeElement = byId('managementCode');
         if (!codeElement) return;
 
-        const params = new URLSearchParams(location.search);
-        const id = params.get('id');
+        const id = new URLSearchParams(location.search).get('id');
         const code = id ? sessionStorage.getItem(codeKey(id)) : null;
 
         if (!code || !id) {
-            const heading = document.getElementById('successHeading');
-            if (heading) heading.textContent = 'Thiếu thông tin bài đăng';
-            codeElement.textContent = 'Không có mã quản lý';
-            document.getElementById('copyCodeBtn')?.setAttribute('hidden', '');
-            document.getElementById('manageCreatedPost')?.setAttribute('hidden', '');
+            showMissingSuccessData(codeElement);
             return;
         }
+
         codeElement.textContent = code;
 
-        const view = document.getElementById('viewCreatedPost');
-        if (view && id) view.href = `detail.html?id=${encodeURIComponent(id)}`;
+        const viewLink = byId('viewCreatedPost');
+        if (viewLink) viewLink.href = `detail.html?id=${encodeURIComponent(id)}`;
 
-        const manage = document.getElementById('manageCreatedPost');
-        if (manage) manage.href = 'my-posts.html';
+        const manageLink = byId('manageCreatedPost');
+        if (manageLink) manageLink.href = 'my-posts.html';
 
-        document.getElementById('copyCodeBtn')?.addEventListener('click', async () => {
+        byId('copyCodeBtn')?.addEventListener('click', async () => {
             try {
                 await navigator.clipboard.writeText(code);
-                document.getElementById('copyCodeStatus').textContent = 'Đã sao chép mã quản lý.';
+                byId('copyCodeStatus').textContent = 'Đã sao chép mã quản lý.';
             } catch (error) {
                 prompt('Sao chép mã quản lý:', code);
             }
         });
     }
 
+    function getSystemFeedbackBody() {
+        return {
+            name: readValue('systemFeedbackName'),
+            email: readValue('systemFeedbackEmail'),
+            subject: byId('systemFeedbackSubject')?.value || '',
+            message: readValue('systemFeedbackMessage')
+        };
+    }
+
     function setupSystemFeedback() {
-        const form = document.getElementById('systemFeedbackForm');
+        const form = byId('systemFeedbackForm');
         if (!form) return;
 
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
 
-            const status = document.getElementById('systemFeedbackStatus');
+            const status = byId('systemFeedbackStatus');
 
             try {
                 const data = await request('/api/feedback', {
                     method: 'POST',
-                    body: {
-                        name: document.getElementById('systemFeedbackName').value.trim(),
-                        email: document.getElementById('systemFeedbackEmail').value.trim(),
-                        subject: document.getElementById('systemFeedbackSubject').value,
-                        message: document.getElementById('systemFeedbackMessage').value.trim()
-                    }
+                    body: getSystemFeedbackBody()
                 });
 
                 status.style.display = 'block';
