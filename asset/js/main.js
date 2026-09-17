@@ -23,23 +23,29 @@
         return `lostlink_management_${postId}`;
     }
 
+    function fillSelectOptions(selectId, values) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+
+        const firstOption = select.options[0]?.cloneNode(true);
+        select.replaceChildren(firstOption);
+
+        for (const value of values) {
+            select.add(new Option(value, value));
+        }
+    }
+
     function setupCatalog() {
         const catalog = window.LostLinkCatalog;
         if (!catalog) return;
-        for (const [id, values] of Object.entries({
-            postCategory: catalog.categories,
-            categoryFilter: catalog.categories,
-            completeSearchCategory: catalog.categories,
-            postLocation: catalog.locations,
-            locationFilter: catalog.locations,
-            completeSearchLocation: catalog.locations
-        })) {
-            const select = document.getElementById(id);
-            if (!select) continue;
-            const first = select.options[0]?.cloneNode(true);
-            select.replaceChildren(first);
-            for (const value of values) select.add(new Option(value, value));
-        }
+
+        fillSelectOptions('postCategory', catalog.categories);
+        fillSelectOptions('categoryFilter', catalog.categories);
+        fillSelectOptions('completeSearchCategory', catalog.categories);
+
+        fillSelectOptions('postLocation', catalog.locations);
+        fillSelectOptions('locationFilter', catalog.locations);
+        fillSelectOptions('completeSearchLocation', catalog.locations);
     }
 
     function localDateTime(value) {
@@ -153,9 +159,50 @@
         }
     }
 
+    const LISTING_FILTER_IDS = [
+        'pageSearch',
+        'categoryFilter',
+        'locationFilter',
+        'timeFilter',
+        'sortOrder'
+    ];
+
+    const LISTING_TIME_LIMITS_IN_DAYS = {
+        today: 1,
+        '3days': 3,
+        '7days': 7,
+        '30days': 30
+    };
+
+    const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
     function selectedListingType() {
         const page = location.pathname.split('/').pop().toLowerCase();
         return page === 'found.html' ? 'found' : 'lost';
+    }
+
+    function showListingLoadError(grid, error) {
+        state.listingPosts = [];
+
+        grid.innerHTML = `
+            <div class="manage-placeholder">
+                <h3>Không thể tải bài đăng</h3>
+                <p>${escapeHTML(error.message)}</p>
+                <button type="button" id="retryListing" class="btn btn-secondary">Thử lại</button>
+            </div>
+        `;
+
+        document.getElementById('retryListing')?.addEventListener('click', loadListingPosts);
+
+        const resultCount = document.getElementById('resultCount');
+        if (resultCount) {
+            resultCount.textContent = 'Không tải được dữ liệu';
+        }
+
+        const emptyResults = document.getElementById('emptyResults');
+        if (emptyResults) {
+            emptyResults.hidden = true;
+        }
     }
 
     async function loadListingPosts() {
@@ -168,13 +215,7 @@
             state.listingPosts = await request(`/api/posts?type=${type}&status=active&sort=newest`);
             renderListingPosts();
         } catch (error) {
-            state.listingPosts = [];
-            grid.innerHTML = `<div class="manage-placeholder"><h3>Không thể tải bài đăng</h3><p>${escapeHTML(error.message)}</p><button type="button" id="retryListing" class="btn btn-secondary">Thử lại</button></div>`;
-            document.getElementById('retryListing')?.addEventListener('click', loadListingPosts);
-            const count = document.getElementById('resultCount');
-            if (count) count.textContent = 'Không tải được dữ liệu';
-            const empty = document.getElementById('emptyResults');
-            if (empty) empty.hidden = true;
+            showListingLoadError(grid, error);
         }
     }
 
@@ -184,15 +225,13 @@
         const createdAt = new Date(post.created_at).getTime();
         if (Number.isNaN(createdAt)) return true;
 
-        const day = 24 * 60 * 60 * 1000;
-        const now = Date.now();
+        const numberOfDays = LISTING_TIME_LIMITS_IN_DAYS[filterValue];
+        if (!numberOfDays) return true;
 
-        if (filterValue === 'today') return now - createdAt <= day;
-        if (filterValue === '3days') return now - createdAt <= 3 * day;
-        if (filterValue === '7days') return now - createdAt <= 7 * day;
-        if (filterValue === '30days') return now - createdAt <= 30 * day;
+        const maximumAge = numberOfDays * MILLISECONDS_PER_DAY;
+        const postAge = Date.now() - createdAt;
 
-        return true;
+        return postAge <= maximumAge;
     }
 
     function readListingFilters() {
@@ -205,14 +244,28 @@
         };
     }
 
+    function postMatchesSearch(post, searchText) {
+        const searchableText = `${post.title} ${post.description} ${post.location} ${post.category}`.toLowerCase();
+        return searchableText.includes(searchText);
+    }
+
+    function compareListingPosts(firstPost, secondPost, sortOrder) {
+        if (sortOrder === 'oldest') {
+            return new Date(firstPost.created_at) - new Date(secondPost.created_at);
+        }
+
+        if (sortOrder === 'title-asc') {
+            return firstPost.title.localeCompare(secondPost.title, 'vi');
+        }
+
+        return new Date(secondPost.created_at) - new Date(firstPost.created_at);
+    }
+
     function filterAndSortListingPosts(filters) {
         let posts = [...state.listingPosts];
 
         if (filters.search) {
-            posts = posts.filter((post) => {
-                const text = `${post.title} ${post.description} ${post.location} ${post.category}`.toLowerCase();
-                return text.includes(filters.search);
-            });
+            posts = posts.filter((post) => postMatchesSearch(post, filters.search));
         }
 
         if (filters.category) {
@@ -227,16 +280,8 @@
             posts = posts.filter((post) => timeFilterMatches(post, filters.time));
         }
 
-        posts.sort((a, b) => {
-            if (filters.sort === 'oldest') {
-                return new Date(a.created_at) - new Date(b.created_at);
-            }
-
-            if (filters.sort === 'title-asc') {
-                return a.title.localeCompare(b.title, 'vi');
-            }
-
-            return new Date(b.created_at) - new Date(a.created_at);
+        posts.sort((firstPost, secondPost) => {
+            return compareListingPosts(firstPost, secondPost, filters.sort);
         });
 
         return posts;
@@ -254,58 +299,63 @@
             resultCount.textContent = `${posts.length} kết quả`;
         }
 
-        const empty = document.getElementById('emptyResults');
-        if (empty) {
-            empty.hidden = posts.length > 0;
+        const emptyResults = document.getElementById('emptyResults');
+        if (emptyResults) {
+            emptyResults.hidden = posts.length > 0;
         }
 
         grid.innerHTML = posts.map(postCardHTML).join('');
         window.lucide?.createIcons();
     }
 
-    function setupListingFilters() {
+    function applyCategoryFilterFromUrl() {
         const categoryFromUrl = new URLSearchParams(location.search).get('category');
         const categorySelect = document.getElementById('categoryFilter');
-        if (categoryFromUrl && categorySelect) {
-            const canonical = window.LostLinkCatalog?.canonicalCategory(categoryFromUrl) || categoryFromUrl;
-            if ([...categorySelect.options].some((option) => option.value === canonical)) categorySelect.value = canonical;
-        }
-        const ids = [
-            'pageSearch',
-            'categoryFilter',
-            'locationFilter',
-            'timeFilter',
-            'sortOrder'
-        ];
 
-        ids.forEach((id) => {
+        if (!categoryFromUrl || !categorySelect) return;
+
+        const canonicalCategory = window.LostLinkCatalog?.canonicalCategory(categoryFromUrl) || categoryFromUrl;
+        const categoryExists = [...categorySelect.options]
+            .some((option) => option.value === canonicalCategory);
+
+        if (categoryExists) {
+            categorySelect.value = canonicalCategory;
+        }
+    }
+
+    function resetListingFilters() {
+        const searchInput = document.getElementById('pageSearch');
+        const categorySelect = document.getElementById('categoryFilter');
+        const locationSelect = document.getElementById('locationFilter');
+        const timeSelect = document.getElementById('timeFilter');
+        const sortSelect = document.getElementById('sortOrder');
+
+        if (searchInput) searchInput.value = '';
+        if (categorySelect) categorySelect.value = '';
+        if (locationSelect) locationSelect.value = '';
+        if (timeSelect) timeSelect.value = '';
+        if (sortSelect) sortSelect.value = 'newest';
+
+        if (location.search) {
+            history.replaceState(null, '', location.pathname);
+        }
+
+        renderListingPosts();
+    }
+
+    function setupListingFilters() {
+        applyCategoryFilterFromUrl();
+
+        for (const id of LISTING_FILTER_IDS) {
             const element = document.getElementById(id);
-            if (!element) return;
+            if (!element) continue;
 
             const eventName = element.tagName === 'INPUT' ? 'input' : 'change';
             element.addEventListener(eventName, renderListingPosts);
-        });
+        }
 
-        const reset = () => {
-            const search = document.getElementById('pageSearch');
-            const category = document.getElementById('categoryFilter');
-            const locationSelect = document.getElementById('locationFilter');
-            const time = document.getElementById('timeFilter');
-            const sort = document.getElementById('sortOrder');
-
-            if (search) search.value = '';
-            if (category) category.value = '';
-            if (locationSelect) locationSelect.value = '';
-            if (time) time.value = '';
-            if (sort) sort.value = 'newest';
-
-            if (location.search) history.replaceState(null, '', location.pathname);
-
-            renderListingPosts();
-        };
-
-        document.getElementById('resetFilters')?.addEventListener('click', reset);
-        document.getElementById('emptyReset')?.addEventListener('click', reset);
+        document.getElementById('resetFilters')?.addEventListener('click', resetListingFilters);
+        document.getElementById('emptyReset')?.addEventListener('click', resetListingFilters);
     }
 
     function readVerificationQuestionsFromForm() {
