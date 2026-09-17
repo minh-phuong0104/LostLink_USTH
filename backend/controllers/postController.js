@@ -39,6 +39,11 @@ function makeManagementCode() {
     return `LL-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
 }
 
+function matchesManagementCode(post, submittedCode) {
+    return submittedCode &&
+        String(post.management_code || '').toUpperCase() === submittedCode;
+}
+
 function publicQuestions(questions) {
     if (!Array.isArray(questions)) {
         return [];
@@ -333,10 +338,7 @@ async function updatePost(req, res) {
             req.body.managementCode || req.headers['x-management-code'] || ''
         ).trim().toUpperCase();
         const isAdmin = req.user?.role === 'admin';
-        const hasValidCode = (
-            managementCode &&
-            String(currentPost.management_code || '').toUpperCase() === managementCode
-        );
+        const hasValidCode = matchesManagementCode(currentPost, managementCode);
 
         if (!isAdmin && !hasValidCode) {
             return res.status(403).json({
@@ -415,10 +417,7 @@ async function updateOwnPostStatus(req, res) {
         }
 
         const isAdmin = req.user?.role === 'admin';
-        const hasValidCode = (
-            managementCode &&
-            String(currentResult.rows[0].management_code || '').toUpperCase() === managementCode
-        );
+        const hasValidCode = matchesManagementCode(currentResult.rows[0], managementCode);
 
         if (!isAdmin && !hasValidCode) {
             return res.status(403).json({ message: 'Invalid management code.' });
@@ -461,10 +460,7 @@ async function deletePost(req, res) {
         }
 
         const isAdmin = req.user?.role === 'admin';
-        const hasValidCode = (
-            managementCode &&
-            String(currentResult.rows[0].management_code || '').toUpperCase() === managementCode
-        );
+        const hasValidCode = matchesManagementCode(currentResult.rows[0], managementCode);
 
         if (!isAdmin && !hasValidCode) {
             return res.status(403).json({ message: 'Invalid management code.' });

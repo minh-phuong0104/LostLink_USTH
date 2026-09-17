@@ -60,3 +60,17 @@ button,input,select,textarea{font:inherit}
 
 /* Feedback tracking / admin response */
 .feedback-code-line{display:flex;align-items:center;gap:6px;margin-bottom:8px}.feedback-timeline-admin{display:flex;gap:12px;flex-wrap:wrap;color:var(--admin-muted);font-size:12px;padding:9px 0 12px;border-top:1px dashed #e4e9f0}.admin-reply-box{margin:4px 0 14px}.admin-reply-box label{display:block;font-size:13px;font-weight:700;color:var(--admin-text);margin-bottom:6px}.admin-reply-box textarea{width:100%;min-height:88px;resize:vertical;border:1px solid var(--admin-border);border-radius:9px;padding:10px 12px;color:var(--admin-text);outline:none;background:#fbfcfe}.admin-reply-box textarea:focus{border-color:#8fb6e8;box-shadow:0 0 0 3px rgba(21,95,193,.08);background:#fff}
+
+/* Cho mã dài xuống dòng trong thẻ quản trị thay vì đẩy rộng bảng/thẻ. */
+.management-code,
+.detail-code {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.recent-row > div {
+  min-width: 0;
+}
+.recent-row strong {
+  overflow-wrap: anywhere;
+}

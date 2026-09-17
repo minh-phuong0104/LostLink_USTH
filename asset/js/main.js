@@ -19,7 +19,9 @@
         currentEditPost: null
     };
 
-    function codeKey(postId) { return `lostlink_management_${postId}`; }
+    function codeKey(postId) {
+        return `lostlink_management_${postId}`;
+    }
 
     function setupCatalog() {
         const catalog = window.LostLinkCatalog;
@@ -193,48 +195,59 @@
         return true;
     }
 
-    function renderListingPosts() {
-        const grid = document.getElementById('listingGrid');
-        if (!grid) return;
+    function readListingFilters() {
+        return {
+            search: (document.getElementById('pageSearch')?.value || '').trim().toLowerCase(),
+            category: document.getElementById('categoryFilter')?.value || '',
+            location: document.getElementById('locationFilter')?.value || '',
+            time: document.getElementById('timeFilter')?.value || '',
+            sort: document.getElementById('sortOrder')?.value || 'newest'
+        };
+    }
 
-        const search = (document.getElementById('pageSearch')?.value || '').trim().toLowerCase();
-        const category = document.getElementById('categoryFilter')?.value || '';
-        const locationValue = document.getElementById('locationFilter')?.value || '';
-        const time = document.getElementById('timeFilter')?.value || '';
-        const sort = document.getElementById('sortOrder')?.value || 'newest';
-
+    function filterAndSortListingPosts(filters) {
         let posts = [...state.listingPosts];
 
-        if (search) {
+        if (filters.search) {
             posts = posts.filter((post) => {
                 const text = `${post.title} ${post.description} ${post.location} ${post.category}`.toLowerCase();
-                return text.includes(search);
+                return text.includes(filters.search);
             });
         }
 
-        if (category) {
-            posts = posts.filter((post) => post.category === category);
+        if (filters.category) {
+            posts = posts.filter((post) => post.category === filters.category);
         }
 
-        if (locationValue) {
-            posts = posts.filter((post) => post.location === locationValue);
+        if (filters.location) {
+            posts = posts.filter((post) => post.location === filters.location);
         }
 
-        if (time) {
-            posts = posts.filter((post) => timeFilterMatches(post, time));
+        if (filters.time) {
+            posts = posts.filter((post) => timeFilterMatches(post, filters.time));
         }
 
         posts.sort((a, b) => {
-            if (sort === 'oldest') {
+            if (filters.sort === 'oldest') {
                 return new Date(a.created_at) - new Date(b.created_at);
             }
 
-            if (sort === 'title-asc') {
+            if (filters.sort === 'title-asc') {
                 return a.title.localeCompare(b.title, 'vi');
             }
 
             return new Date(b.created_at) - new Date(a.created_at);
         });
+
+        return posts;
+    }
+
+    function renderListingPosts() {
+        const grid = document.getElementById('listingGrid');
+        if (!grid) return;
+
+        const filters = readListingFilters();
+        const posts = filterAndSortListingPosts(filters);
 
         const resultCount = document.getElementById('resultCount');
         if (resultCount) {

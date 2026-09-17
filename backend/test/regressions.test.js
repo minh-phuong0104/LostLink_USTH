@@ -53,6 +53,42 @@ test('management code cannot change a hidden post status', async () => {
     assert.equal(calls, 1);
 });
 
+test('owner management code gates status changes and deletion', async () => {
+    const statements = [];
+    fakePool.query = async (sql) => {
+        statements.push(sql);
+        if (sql.startsWith('SELECT')) {
+            return { rows: [{ id: UUID, management_code: 'LL-SECRET', status: 'active' }] };
+        }
+        return { rows: [{ id: UUID, status: 'resolved' }] };
+    };
+
+    const actions = [
+        (code, res) => posts.updateOwnPostStatus({
+            params: { id: UUID }, body: { status: 'resolved', managementCode: code },
+            headers: {}, user: null
+        }, res),
+        (code, res) => posts.deletePost({
+            params: { id: UUID }, body: { managementCode: code },
+            headers: {}, user: null
+        }, res)
+    ];
+
+    for (const action of actions) {
+        statements.length = 0;
+        const denied = response();
+        await action('wrong-code', denied);
+        assert.equal(denied.statusCode, 403);
+        assert.equal(statements.length, 1);
+
+        statements.length = 0;
+        const allowed = response();
+        await action('ll-secret', allowed);
+        assert.equal(allowed.statusCode, 200);
+        assert.equal(statements.length, 2);
+    }
+});
+
 test('admin list keeps guest posts with a LEFT JOIN', async () => {
     let sql = '';
     fakePool.query = async (query) => { sql = query; return { rows: [] }; };

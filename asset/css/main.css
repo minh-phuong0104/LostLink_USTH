@@ -933,20 +933,39 @@ textarea {
 .sort-note svg{width:15px;height:15px;color:#0d5cc8}
 
 
-/* ===== Mã quản lý: hiển thị cố định sau khi đăng ===== */
-.success-card--code{max-width:680px;padding:42px 46px}
+/* Mã có 32 ký tự hex nên phải co và xuống dòng trong thẻ, kể cả trên điện thoại. */
+.success-card--code {
+  max-width: 680px;
+  padding: 42px 46px;
+}
 .management-warning{display:flex;align-items:flex-start;gap:12px;margin:22px 0 4px;padding:15px 16px;text-align:left;border:1px solid #f0d49d;border-radius:9px;background:#fff9ed;color:#6d5019}
 .management-warning svg{width:22px;height:22px;flex:0 0 auto;margin-top:1px;color:#b07810}
 .management-warning div{display:flex;flex-direction:column;gap:4px}
 .management-warning strong{font-size:14px;color:#5b4217}
 .management-warning span{font-size:13px;line-height:1.45}
-.success-card--code .management-code{margin:18px 0 8px;font-size:30px;padding:20px 22px;border-width:2px;background:#f3f8ff}
+.success-card--code .management-code {
+  margin: 18px 0 8px;
+  padding: 20px 22px;
+  border-width: 2px;
+  background: #f3f8ff;
+  font-size: clamp(16px, 1.8vw, 18px);
+  letter-spacing: .04em;
+}
+.success-card--code #managementCode {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.success-card--code .copy-code-btn {
+  flex: 0 0 38px;
+}
 .copy-code-status{margin:0 0 22px!important;color:#68758b!important;font-size:13px}
 .success-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
 .success-actions .btn:first-child{grid-column:1/-1;min-height:50px}
 .success-tip{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:20px;padding-top:18px;border-top:1px solid #edf1f5;color:#7a879a;font-size:13px}
 .success-tip svg{width:17px;height:17px;color:#0d5cc8}
-@media(max-width:640px){.success-card--code{padding:30px 20px}.success-card--code .management-code{font-size:24px;letter-spacing:.05em}.success-actions{grid-template-columns:1fr}.success-actions .btn:first-child{grid-column:auto}.success-tip{align-items:flex-start;text-align:left}}
+@media(max-width:640px){.success-card--code{padding:30px 20px}.success-actions{grid-template-columns:1fr}.success-actions .btn:first-child{grid-column:auto}.success-tip{align-items:flex-start;text-align:left}}
 
 /* ===== Gửi phản hồi tin ===== */
 .btn-feedback{
